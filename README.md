@@ -47,6 +47,9 @@ node dist/cli.js install
 
 - `install --statusline` : uniquement la statusline.
 - `install --skill` : uniquement la skill `/sessions`.
+- `install --autostart` : ajoute un hook `SessionStart` qui démarre le tableau de bord
+  (s'il ne tourne pas déjà) et l'ouvre dans le navigateur à l'ouverture d'une session
+  Claude Code. Non inclus par défaut (comportement plus intrusif).
 
 Après installation, le statusline de Claude Code affiche le modèle, le coût de la session et
 une barre d'occupation du contexte. La skill `/sessions` liste vos sessions depuis n'importe

@@ -10,6 +10,8 @@ export interface InstallOptions {
   statusline?: boolean;
   /** Installe la skill `/sessions`. */
   skill?: boolean;
+  /** Installe le hook SessionStart (auto-démarrage du dashboard + ouverture navigateur). */
+  autostart?: boolean;
 }
 
 /** Racine du paquet (à partir de `dist/commands/install.js` ou `src/commands/install.ts`). */
@@ -57,10 +59,39 @@ function installSkill(): void {
   writeOut(`Skill /sessions installée dans ${destDir}.`);
 }
 
-/** Exécute l'installation des intégrations Claude Code (statusline et/ou skill). */
+/**
+ * Ajoute un hook `SessionStart` à `settings.json` (auto-démarrage du dashboard) sans écraser
+ * les autres hooks. Idempotent : ne ré-ajoute pas le hook s'il est déjà présent.
+ */
+function installSessionHook(): void {
+  const path = settingsPath();
+  const scriptPath = join(packageRoot(), 'scripts', 'session-start.sh');
+
+  let settings: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    const raw = readFileSync(path, 'utf8');
+    settings = JSON.parse(raw) as Record<string, unknown>;
+    writeFileSync(`${path}.bak`, raw);
+  }
+
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+  const sessionStart = Array.isArray(hooks.SessionStart) ? [...hooks.SessionStart] : [];
+  if (!JSON.stringify(sessionStart).includes('session-start.sh')) {
+    sessionStart.push({ hooks: [{ type: 'command', command: scriptPath }] });
+  }
+  hooks.SessionStart = sessionStart;
+  settings.hooks = hooks;
+
+  const serialized = JSON.stringify(settings, null, 2);
+  JSON.parse(serialized); // garde-fou : JSON valide uniquement
+  writeFileSync(path, `${serialized}\n`);
+  writeOut(`Hook SessionStart (auto-démarrage du dashboard) configuré dans ${path}.`);
+}
+
+/** Exécute l'installation des intégrations Claude Code (statusline, skill, auto-démarrage). */
 export function runInstall(opts: InstallOptions): void {
-  // Sans option explicite, on installe les deux intégrations.
-  const doAll = !opts.statusline && !opts.skill;
+  // Sans option explicite, on installe statusline + skill (pas l'auto-démarrage, plus intrusif).
+  const doAll = !opts.statusline && !opts.skill && !opts.autostart;
 
   if (opts.statusline || doAll) {
     try {
@@ -75,6 +106,14 @@ export function runInstall(opts: InstallOptions): void {
       installSkill();
     } catch (error) {
       writeErr(`Échec de l'installation de la skill : ${(error as Error).message}`);
+      process.exitCode = 1;
+    }
+  }
+  if (opts.autostart) {
+    try {
+      installSessionHook();
+    } catch (error) {
+      writeErr(`Échec de l'installation du hook SessionStart : ${(error as Error).message}`);
       process.exitCode = 1;
     }
   }

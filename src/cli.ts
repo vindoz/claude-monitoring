@@ -132,11 +132,12 @@ program
 
 program
   .command('install')
-  .description('Installe les intégrations Claude Code (statusline et skill /sessions)')
+  .description('Installe les intégrations Claude Code (statusline, skill /sessions, auto-démarrage)')
   .option('--statusline', 'installe uniquement la statusline')
   .option('--skill', 'installe uniquement la skill /sessions')
+  .option('--autostart', 'installe le hook SessionStart (démarre le dashboard + ouvre le navigateur)')
   .action((opts) => {
-    runInstall({ statusline: opts.statusline, skill: opts.skill });
+    runInstall({ statusline: opts.statusline, skill: opts.skill, autostart: opts.autostart });
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {
