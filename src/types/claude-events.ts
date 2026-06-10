@@ -1,0 +1,122 @@
+/**
+ * Types décrivant les données lues par l'outil :
+ * - les events des transcripts de session Claude Code (`~/.claude/projects/**​/*.jsonl`) ;
+ * - le payload JSON fourni par Claude Code sur l'entrée standard du statusline.
+ *
+ * Ces types ne couvrent que les champs réellement exploités : les transcripts contiennent
+ * bien d'autres clés qui ne nous intéressent pas pour le calcul de coût.
+ */
+
+/** Détail de la consommation de tokens d'un message assistant. */
+export interface ClaudeUsage {
+  /** Tokens d'entrée « frais » (non issus du cache). */
+  input_tokens?: number;
+  /** Tokens écrits dans le cache (cache creation, toutes durées confondues). */
+  cache_creation_input_tokens?: number;
+  /** Tokens lus depuis le cache (cache read). */
+  cache_read_input_tokens?: number;
+  /** Tokens de sortie générés. */
+  output_tokens?: number;
+  /** Répartition des tokens d'écriture de cache par durée d'éphémérité. */
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+  };
+  /** Compteurs d'appels aux outils serveur (recherche / fetch web), facturés à l'unité. */
+  server_tool_use?: {
+    web_search_requests?: number;
+    web_fetch_requests?: number;
+  };
+}
+
+/** Contenu du champ `message` d'un event assistant. */
+export interface AssistantMessage {
+  /** Identifiant du message (ex. `msg_...`), utilisé pour la déduplication. */
+  id?: string;
+  /** Modèle ayant produit la réponse (ex. `claude-opus-4-8`, `<synthetic>`). */
+  model?: string;
+  usage?: ClaudeUsage;
+}
+
+/**
+ * Event « assistant » d'un transcript : la seule source de consommation de tokens.
+ * Une même réponse logique est souvent répartie sur plusieurs lignes (un bloc de contenu
+ * par ligne), chacune répétant le `usage` complet → d'où la déduplication par (id, requestId).
+ */
+export interface AssistantEvent {
+  type: 'assistant';
+  message?: AssistantMessage;
+  /** Identifiant de requête API (ex. `req_...`), utilisé pour la déduplication. */
+  requestId?: string;
+  /** Vrai pour les transcripts d'agents (sous-tâches). */
+  isSidechain?: boolean;
+  /** Horodatage ISO 8601 de l'event. */
+  timestamp?: string;
+  sessionId?: string;
+  cwd?: string;
+  gitBranch?: string;
+}
+
+/** Event « ai-title » : titre humain attribué à la session. */
+export interface AiTitleEvent {
+  type: 'ai-title';
+  aiTitle?: string;
+  sessionId?: string;
+}
+
+/** Forme minimale partagée par tous les events (pour discriminer sur `type`). */
+export interface GenericEvent {
+  type?: string;
+  [key: string]: unknown;
+}
+
+/** Union des events que l'on sait traiter. */
+export type ClaudeEvent = AssistantEvent | AiTitleEvent | GenericEvent;
+
+/** Garde de type : event assistant. */
+export function isAssistantEvent(event: ClaudeEvent): event is AssistantEvent {
+  return event.type === 'assistant';
+}
+
+/** Garde de type : event ai-title. */
+export function isAiTitleEvent(event: ClaudeEvent): event is AiTitleEvent {
+  return event.type === 'ai-title';
+}
+
+/**
+ * Payload JSON envoyé par Claude Code sur stdin au script de statusline.
+ * Plusieurs champs peuvent être `null` en début de session ou juste après `/compact`.
+ */
+export interface StatuslineInput {
+  model?: {
+    id?: string;
+    display_name?: string;
+  };
+  context_window?: {
+    total_input_tokens?: number | null;
+    total_output_tokens?: number | null;
+    context_window_size?: number | null;
+    used_percentage?: number | null;
+    remaining_percentage?: number | null;
+    current_usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    } | null;
+  };
+  cost?: {
+    total_cost_usd?: number | null;
+    total_duration_ms?: number | null;
+    total_api_duration_ms?: number | null;
+    total_lines_added?: number | null;
+    total_lines_removed?: number | null;
+  };
+  workspace?: {
+    current_dir?: string;
+    project_dir?: string;
+  };
+  cwd?: string;
+  session_id?: string;
+  gitBranch?: string;
+}

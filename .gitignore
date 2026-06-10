@@ -1,0 +1,25 @@
+# Dépendances
+node_modules/
+
+# Build
+dist/
+
+# Base de données SQLite (jamais commitée — données personnelles + volumineuse)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Couverture de tests
+coverage/
+
+# Logs et divers
+*.log
+.DS_Store
+
+# Override de pricing local éventuel
+*.pricing.local.json
+
+# État interne des workflows EPCT (ne pas committer)
+.claude/epct-states/
