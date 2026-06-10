@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { runIngest } from './commands/ingest.js';
-import { runSessions } from './commands/sessions.js';
-import { runSummary } from './commands/summary.js';
-import { runStatusline } from './commands/statusline.js';
-import { runServe } from './commands/serve.js';
-import { runInstall } from './commands/install.js';
 import { writeErr } from './format/output.js';
 import type { Dimension } from './db/queries.js';
+
+/**
+ * Les commandes sont importées dynamiquement dans leurs actions : ainsi `ccmon statusline`
+ * (hot path appelé ~toutes les 300 ms) ne charge pas les modules de base de données
+ * (better-sqlite3, natif) tirés par `ingest`/`sessions`/`summary`/`serve`.
+ */
 
 /** Convertit une option numérique de ligne de commande. */
 function toInt(value: string): number {
@@ -27,13 +27,9 @@ program
   .option('--db <path>', 'chemin de la base SQLite')
   .option('--projects-dir <path>', 'répertoire des transcripts Claude Code')
   .option('-q, --quiet', 'sortie minimale')
-  .action((opts) => {
-    runIngest({
-      force: opts.force,
-      db: opts.db,
-      projectsDir: opts.projectsDir,
-      quiet: opts.quiet,
-    });
+  .action(async (opts) => {
+    const { runIngest } = await import('./commands/ingest.js');
+    runIngest({ force: opts.force, db: opts.db, projectsDir: opts.projectsDir, quiet: opts.quiet });
   });
 
 program
@@ -49,7 +45,8 @@ program
   .option('--projects-dir <path>', 'répertoire des transcripts Claude Code')
   .option('--pricing <path>', 'fichier de pricing override')
   .option('-q, --quiet', "masque le bilan d'ingestion")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runSessions } = await import('./commands/sessions.js');
     runSessions({
       project: opts.project,
       since: opts.since,
@@ -79,7 +76,8 @@ program
   .option('--projects-dir <path>', 'répertoire des transcripts Claude Code')
   .option('--pricing <path>', 'fichier de pricing override')
   .option('-q, --quiet', "masque le bilan d'ingestion")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runSummary } = await import('./commands/summary.js');
     runSummary({
       by: opts.by as Dimension,
       project: opts.project,
@@ -102,10 +100,8 @@ program
   .option('--format <format>', 'oneline | compact', 'oneline')
   .option('--no-color', 'désactive la couleur')
   .action(async (opts) => {
-    await runStatusline({
-      format: opts.format,
-      noColor: opts.color === false,
-    });
+    const { runStatusline } = await import('./commands/statusline.js');
+    await runStatusline({ format: opts.format, noColor: opts.color === false });
   });
 
 program
@@ -118,7 +114,8 @@ program
   .option('--db <path>', 'chemin de la base SQLite')
   .option('--projects-dir <path>', 'répertoire des transcripts Claude Code')
   .option('--pricing <path>', 'fichier de pricing override')
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runServe } = await import('./commands/serve.js');
     runServe({
       port: opts.port,
       host: opts.host,
@@ -136,7 +133,8 @@ program
   .option('--statusline', 'installe uniquement la statusline')
   .option('--skill', 'installe uniquement la skill /sessions')
   .option('--autostart', 'installe le hook SessionStart (démarre le dashboard + ouvre le navigateur)')
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runInstall } = await import('./commands/install.js');
     runInstall({ statusline: opts.statusline, skill: opts.skill, autostart: opts.autostart });
   });
 

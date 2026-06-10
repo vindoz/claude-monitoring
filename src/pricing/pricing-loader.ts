@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { userPricingPath } from '../config/paths.js';
 import {
   DEFAULT_PRICING,
   FAMILY_PRICING,
@@ -60,6 +61,14 @@ export function loadOverrideFile(path: string): Record<string, ModelPricing> {
 export function loadPricingTable(overridePath?: string): Record<string, ModelPricing> {
   const override = overridePath ? loadOverrideFile(overridePath) : {};
   return { ...DEFAULT_PRICING, ...override };
+}
+
+/**
+ * Construit le résolveur de tarif (grille par défaut + override utilisateur éventuel).
+ * Sans dépendance à la base de données : utilisable sur le hot path du statusline.
+ */
+export function buildResolver(pricingPath?: string): PricingResolver {
+  return createResolver(loadPricingTable(pricingPath ?? userPricingPath()));
 }
 
 /**

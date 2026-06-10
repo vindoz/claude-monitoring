@@ -1,4 +1,7 @@
-import { relative, sep, basename } from 'node:path';
+import { relative, sep, basename, join } from 'node:path';
+
+/** Nom du répertoire contenant les transcripts de sous-agents d'une session. */
+export const SUBAGENTS_DIRNAME = 'subagents';
 
 /**
  * Décomposition d'un chemin de transcript en informations de session.
@@ -59,6 +62,14 @@ export function parseSessionPath(filePath: string, projectsDir: string): Session
  */
 export function pathToSlug(absolutePath: string): string {
   return absolutePath.replace(/\//g, '-');
+}
+
+/**
+ * Répertoire des sous-agents d'une session, à partir du chemin de son transcript principal
+ * (`<…>/<sessionId>.jsonl` → `<…>/<sessionId>/subagents`). Source unique de la convention.
+ */
+export function subagentsDirForTranscript(mainTranscript: string): string {
+  return join(mainTranscript.replace(/\.jsonl$/, ''), SUBAGENTS_DIRNAME);
 }
 
 /**

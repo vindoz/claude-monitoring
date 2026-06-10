@@ -118,5 +118,7 @@ export interface StatuslineInput {
   };
   cwd?: string;
   session_id?: string;
+  /** Chemin absolu du transcript de la session courante. */
+  transcript_path?: string;
   gitBranch?: string;
 }

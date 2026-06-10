@@ -1,11 +1,9 @@
-import { type Dirent, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { statSync } from 'node:fs';
 import type { Db } from './database.js';
-import { readJsonlFromLine } from '../parser/jsonl-parser.js';
+import { readJsonlFromLine, walkJsonlFiles } from '../parser/jsonl-parser.js';
 import { parseSessionPath } from '../parser/session-path.js';
 import { isAiTitleEvent, isAssistantEvent } from '../types/claude-events.js';
-import { isSyntheticModel } from '../pricing/model-normalizer.js';
-import { usageFromClaude } from '../pricing/cost-model.js';
+import { extractAssistantUsage } from '../report/usage-aggregation.js';
 
 /** Bilan d'une ingestion. */
 export interface IngestResult {
@@ -27,29 +25,6 @@ export interface IngestOptions {
   force?: boolean;
   /** Rappel de progression (appelé pour chaque fichier traité), pour l'affichage. */
   onProgress?: (done: number, total: number) => void;
-}
-
-/** Liste récursivement tous les fichiers `.jsonl` sous un répertoire. */
-export function walkJsonlFiles(root: string): string[] {
-  const out: string[] = [];
-  const visit = (dir: string): void => {
-    let entries: Dirent[];
-    try {
-      entries = readdirSync(dir, { withFileTypes: true }) as Dirent[];
-    } catch {
-      return; // répertoire illisible : on l'ignore silencieusement
-    }
-    for (const entry of entries) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        visit(full);
-      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-        out.push(full);
-      }
-    }
-  };
-  visit(root);
-  return out;
 }
 
 /** Convertit un horodatage ISO en millisecondes, ou `null` si absent/invalide. */
@@ -212,30 +187,28 @@ export function ingest(db: Db, projectsDir: string, options: IngestOptions = {})
           acc.gitBranch = event.gitBranch;
         }
 
-        const model = event.message?.model;
-        if (!model || isSyntheticModel(model)) {
-          if (!model) {
+        // Règle de comptabilisation partagée avec le statusline (cf. usage-aggregation) :
+        // la raison du rejet est portée par le helper, l'ingestion ne fait que la ventiler.
+        const extracted = extractAssistantUsage(event);
+        if (!extracted.ok) {
+          if (extracted.reason === 'no-model') {
             result.messagesSkippedNoModel += 1;
+          } else if (extracted.reason === 'no-id') {
+            result.messagesSkippedNoId += 1;
           }
-          continue;
+          continue; // 'synthetic' : gratuit, exclu silencieusement
         }
-        const messageId = event.message?.id;
-        if (!messageId) {
-          result.messagesSkippedNoId += 1;
-          continue;
-        }
-        const requestId = event.requestId ?? '';
-        const inserted = insSeen.run(messageId, requestId);
+        const inserted = insSeen.run(extracted.messageId, extracted.requestId);
         if (inserted.changes === 0) {
           result.messagesDuplicate += 1;
           continue; // message déjà compté (ligne répétée ou session rejouée)
         }
 
-        const counts = usageFromClaude(event.message?.usage);
+        const counts = extracted.counts;
         upsertRollup.run({
           sessionId: info.sessionId,
           projectSlug: info.projectSlug,
-          model,
+          model: extracted.model,
           day: tsToDay(event.timestamp),
           input: counts.input,
           cw5: counts.cacheWrite5m,

@@ -42,6 +42,12 @@ describe('formatStatusline', () => {
     expect(line).toContain('32%');
   });
 
+  it('affiche le coût complet override au lieu du chiffre natif', () => {
+    const line = formatStatusline(nominal, { noColor: true }, 147.34);
+    expect(line).toContain('$147.34');
+    expect(line).not.toContain('$0.12');
+  });
+
   it('tolère les champs nuls', () => {
     const line = formatStatusline(
       { model: { id: 'claude-fable-5' }, cost: { total_cost_usd: null }, context_window: { used_percentage: null, current_usage: null } },

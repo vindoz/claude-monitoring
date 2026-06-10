@@ -3,6 +3,9 @@ import type { StatuslineInput } from '../types/claude-events.js';
 import { formatTokens, formatUsd } from '../format/currency.js';
 import { progressBar } from '../format/tables.js';
 import { writeOut } from '../format/output.js';
+import { computeSessionCost } from '../statusline/session-cost.js';
+import { buildResolver } from '../pricing/pricing-loader.js';
+import { projectsDir } from '../config/paths.js';
 
 /** Options de la commande `statusline`. */
 export interface StatuslineOptions {
@@ -54,13 +57,20 @@ function sumCurrentUsage(input: StatuslineInput): number | null {
 /**
  * Construit la ligne de statusline à afficher.
  * Tolère tout champ manquant ou `null` (affiché « — »).
+ *
+ * @param sessionCostOverride coût complet calculé par ccmon (cache + sous-agents inclus).
+ *        Quand fourni, il remplace le `cost.total_cost_usd` natif de Claude Code (qui sous-compte).
  */
-export function formatStatusline(input: StatuslineInput, opts: StatuslineOptions = {}): string {
+export function formatStatusline(
+  input: StatuslineInput,
+  opts: StatuslineOptions = {},
+  sessionCostOverride?: number | null,
+): string {
   const useColor = !opts.noColor && !process.env.NO_COLOR;
   const c = createColors(useColor);
 
   const model = input.model?.display_name ?? input.model?.id ?? '—';
-  const cost = input.cost?.total_cost_usd;
+  const cost = sessionCostOverride ?? input.cost?.total_cost_usd;
   const costText = cost == null ? '—' : formatUsd(cost);
 
   const ctx = computeContext(input);
@@ -112,6 +122,24 @@ export function readStdin(): Promise<string> {
   });
 }
 
+/**
+ * Calcule le coût complet de la session (cache + sous-agents inclus) ; renvoie `null` en cas
+ * d'échec pour retomber sur le chiffre natif de Claude Code.
+ */
+function fullSessionCost(input: StatuslineInput): number | null {
+  try {
+    return computeSessionCost({
+      transcriptPath: input.transcript_path,
+      sessionId: input.session_id,
+      cwd: input.cwd ?? input.workspace?.current_dir,
+      projectsDir: projectsDir(),
+      resolver: buildResolver(),
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Exécute la commande statusline : lit le JSON sur stdin et écrit une ligne sur stdout. */
 export async function runStatusline(opts: StatuslineOptions): Promise<void> {
   const raw = await readStdin();
@@ -124,5 +152,5 @@ export async function runStatusline(opts: StatuslineOptions): Promise<void> {
       input = {};
     }
   }
-  writeOut(formatStatusline(input, opts));
+  writeOut(formatStatusline(input, opts, fullSessionCost(input)));
 }

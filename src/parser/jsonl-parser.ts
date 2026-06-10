@@ -1,5 +1,29 @@
-import { readFileSync } from 'node:fs';
+import { type Dirent, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ClaudeEvent } from '../types/claude-events.js';
+
+/** Liste récursivement tous les fichiers `.jsonl` sous un répertoire (répertoires illisibles ignorés). */
+export function walkJsonlFiles(root: string): string[] {
+  const out: string[] = [];
+  const visit = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true }) as Dirent[];
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(full);
+      } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        out.push(full);
+      }
+    }
+  };
+  visit(root);
+  return out;
+}
 
 /**
  * Résultat de la lecture d'un transcript JSONL.

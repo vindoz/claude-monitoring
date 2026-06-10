@@ -1,13 +1,12 @@
 import pc from 'picocolors';
 import { openDatabase, openReadOnly, type Db } from '../db/database.js';
 import { ingest } from '../db/ingest.js';
-import {
-  databasePath,
-  projectsDir as defaultProjectsDir,
-  userPricingPath,
-} from '../config/paths.js';
-import { createResolver, loadPricingTable, type PricingResolver } from '../pricing/pricing-loader.js';
+import { databasePath, projectsDir as defaultProjectsDir } from '../config/paths.js';
 import { writeErr } from '../format/output.js';
+
+// Le résolveur de tarif vit dans pricing-loader (sans dépendance DB) ; on le ré-expose ici
+// pour les commandes d'analyse, mais le statusline l'importe directement pour rester léger.
+export { buildResolver } from '../pricing/pricing-loader.js';
 
 /** Options communes à toutes les commandes d'analyse. */
 export interface CommonOptions {
@@ -16,11 +15,6 @@ export interface CommonOptions {
   pricing?: string;
   noIngest?: boolean;
   quiet?: boolean;
-}
-
-/** Construit le résolveur de tarif (grille par défaut + override utilisateur éventuel). */
-export function buildResolver(pricingPath?: string): PricingResolver {
-  return createResolver(loadPricingTable(pricingPath ?? userPricingPath()));
 }
 
 /** Résout le chemin effectif de la base. */
