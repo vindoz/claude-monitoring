@@ -67,6 +67,12 @@ Après installation, le statusline de Claude Code affiche le modèle, le coût d
 une barre d'occupation du contexte. La skill `/sessions` liste vos sessions depuis n'importe
 quelle session Claude Code.
 
+> **Coût complet** : le statusline affiche le coût **réel** de la session calculé par `ccmon`
+> (lectures de cache **et** sous-agents incluses, au tarif liste). Il est donc volontairement
+> plus élevé que le chiffre natif de Claude Code, qui sous-compte le cache et les sous-agents
+> ([issue #48040](https://github.com/anthropics/claude-code/issues/48040)). En cas d'échec du
+> calcul, le statusline retombe sur le chiffre natif.
+
 ## Utilisation
 
 ```sh
