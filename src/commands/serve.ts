@@ -16,6 +16,7 @@ import {
 import { renderDashboard, type DashboardData } from '../web/render-html.js';
 import { buildStackedSeries, type Granularity } from '../web/timeseries.js';
 import type { PricingResolver } from '../pricing/pricing-loader.js';
+import { formatLocalDateTime } from '../format/currency.js';
 import { writeErr, writeOut } from '../format/output.js';
 import { buildResolver, resolveDbPath, resolveProjectsDir, type CommonOptions } from './common.js';
 
@@ -116,7 +117,7 @@ export function runServe(opts: ServeOptions): void {
       const html = renderDashboard(
         buildDashboardData(db, resolver, {
           sessionsLimit,
-          generatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+          generatedAt: formatLocalDateTime(new Date()),
           granularity: url.searchParams.get('granularity') === 'week' ? 'week' : 'day',
           since: sanitizeDay(url.searchParams.get('since')),
           until: sanitizeDay(url.searchParams.get('until')),

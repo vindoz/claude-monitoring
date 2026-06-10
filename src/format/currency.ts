@@ -29,13 +29,33 @@ export function formatPercent(value: number, digits = 0): string {
   return `${value.toFixed(digits)}%`;
 }
 
-/** Formate un horodatage (ms) en date/heure locale courte, ou `'—'` si absent. */
+/** Fuseau horaire d'affichage : équipe et clients francophones (gère l'heure d'été). */
+const DISPLAY_TIMEZONE = 'Europe/Paris';
+
+/**
+ * Formate une date en `YYYY-MM-DD HH:MM:SS` dans le fuseau d'affichage (Europe/Paris).
+ * La locale `sv-SE` produit nativement ce format ISO en 24 h.
+ */
+export function formatLocalDateTime(date: Date): string {
+  return date.toLocaleString('sv-SE', {
+    timeZone: DISPLAY_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
+/**
+ * Formate un horodatage (ms) en date/heure locale courte (`YYYY-MM-DD HH:MM`, fuseau Europe/Paris),
+ * ou `'—'` si absent.
+ */
 export function formatDateTime(ms: number | null | undefined): string {
   if (ms == null) {
     return '—';
   }
-  const d = new Date(ms);
-  const date = d.toISOString().slice(0, 10);
-  const time = d.toISOString().slice(11, 16);
-  return `${date} ${time}`;
+  return formatLocalDateTime(new Date(ms)).slice(0, 16);
 }

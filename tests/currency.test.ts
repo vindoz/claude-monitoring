@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatDateTime,
+  formatLocalDateTime,
   formatPercent,
   formatTokens,
   formatUsd,
@@ -41,8 +42,19 @@ describe('formatDateTime', () => {
   it('renvoie un tiret sans valeur', () => {
     expect(formatDateTime(null)).toBe('—');
   });
-  it('formate un horodatage', () => {
-    expect(formatDateTime(Date.parse('2026-06-10T13:45:00Z'))).toBe('2026-06-10 13:45');
+  it('formate un horodatage en heure de Paris (UTC+2 en été)', () => {
+    // 13:45 UTC le 10 juin → CEST (UTC+2) → 15:45
+    expect(formatDateTime(Date.parse('2026-06-10T13:45:00Z'))).toBe('2026-06-10 15:45');
+  });
+  it('applique l’heure d’hiver (UTC+1)', () => {
+    // 13:45 UTC le 10 janvier → CET (UTC+1) → 14:45
+    expect(formatDateTime(Date.parse('2026-01-10T13:45:00Z'))).toBe('2026-01-10 14:45');
+  });
+});
+
+describe('formatLocalDateTime', () => {
+  it('formate avec les secondes au fuseau Europe/Paris', () => {
+    expect(formatLocalDateTime(new Date('2026-06-10T18:19:30Z'))).toBe('2026-06-10 20:19:30');
   });
 });
 
