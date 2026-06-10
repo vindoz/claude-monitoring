@@ -16,7 +16,8 @@ qu'un script de statusline.
 3. **Coût de la session en cours** dans le statusline de Claude Code.
 4. **Occupation du contexte en temps réel** dans le statusline.
 5. **Tableau de bord web** (`ccmon serve`) — page navigateur avec graphique d'évolution des
-   coûts (quotidien/hebdomadaire), sélecteur de période, et tableaux par projet/modèle/jour.
+   coûts **empilé par projet** (quotidien/hebdomadaire, une couleur par projet + légende),
+   sélecteur de période, et tableaux par projet/modèle/jour.
 6. **Auto-démarrage** (`ccmon install --autostart`) — ouvre le dashboard à l'ouverture d'une
    session Claude Code.
 
@@ -106,7 +107,8 @@ propre sur **stdout**.
 Lance un serveur HTTP local (module Node natif, **sans dépendance**) servant un tableau de
 bord à `http://127.0.0.1:4757/` (port modifiable via `--port` ou `CCMON_PORT`).
 
-- **Graphique d'évolution** des coûts, granularité **quotidienne** ou **hebdomadaire**.
+- **Graphique d'évolution** des coûts **empilé par projet** (chaque barre est découpée en
+  segments colorés, un par projet, avec une légende), granularité **quotidienne** ou **hebdomadaire**.
 - **Sélecteur de période** (« Du / Au ») qui filtre l'ensemble du tableau de bord.
 - Tableaux **par projet, par modèle, par jour** + liste des **sessions récentes**.
 - Recharger la page ré-ingère les nouveaux transcripts (incrémental).

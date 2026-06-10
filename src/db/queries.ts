@@ -26,6 +26,15 @@ export interface DimensionUsageRow {
   counts: UsageCounts;
 }
 
+/** Ligne d'usage agrégée par (jour, projet, modèle) — base du graphique empilé. */
+export interface DayProjectUsageRow {
+  day: string;
+  project: string;
+  model: string;
+  messageCount: number;
+  counts: UsageCounts;
+}
+
 /** Métadonnées d'une session. */
 export interface SessionMeta {
   sessionId: string;
@@ -69,10 +78,18 @@ function buildWhere(filters: UsageFilters): { clause: string; params: Record<str
   return { clause, params };
 }
 
-/** Ligne brute renvoyée par SQLite pour les agrégats d'usage. */
-interface RawUsageRow {
-  key: string;
-  model: string;
+/** Liste des colonnes `SUM(...)` partagée par les requêtes d'agrégation d'usage. */
+const USAGE_SUMS = `SUM(message_count)         AS messageCount,
+      SUM(input_tokens)          AS input,
+      SUM(cache_write_5m_tokens) AS cw5,
+      SUM(cache_write_1h_tokens) AS cw1,
+      SUM(cache_read_tokens)     AS cacheRead,
+      SUM(output_tokens)         AS output,
+      SUM(web_search_requests)   AS webSearch,
+      SUM(web_fetch_requests)    AS webFetch`;
+
+/** Colonnes de tokens brutes renvoyées par SQLite (partagées par tous les agrégats). */
+interface RawCounts {
   messageCount: number;
   input: number;
   cw5: number;
@@ -83,21 +100,39 @@ interface RawUsageRow {
   webFetch: number;
 }
 
+/** Ligne brute renvoyée par SQLite pour les agrégats par dimension. */
+interface RawUsageRow extends RawCounts {
+  key: string;
+  model: string;
+}
+
+/** Ligne brute renvoyée par SQLite pour les agrégats par (jour, projet, modèle). */
+interface RawDayProjectRow extends RawCounts {
+  day: string;
+  project: string;
+  model: string;
+}
+
+/** Construit l'objet `UsageCounts` à partir des colonnes de tokens brutes. */
+function rawToCounts(raw: RawCounts): UsageCounts {
+  return {
+    input: raw.input,
+    cacheWrite5m: raw.cw5,
+    cacheWrite1h: raw.cw1,
+    cacheRead: raw.cacheRead,
+    output: raw.output,
+    webSearch: raw.webSearch,
+    webFetch: raw.webFetch,
+  };
+}
+
 /** Transforme une ligne brute en ligne d'usage typée. */
 function toDimensionRow(raw: RawUsageRow): DimensionUsageRow {
   return {
     key: raw.key,
     model: raw.model,
     messageCount: raw.messageCount,
-    counts: {
-      input: raw.input,
-      cacheWrite5m: raw.cw5,
-      cacheWrite1h: raw.cw1,
-      cacheRead: raw.cacheRead,
-      output: raw.output,
-      webSearch: raw.webSearch,
-      webFetch: raw.webFetch,
-    },
+    counts: rawToCounts(raw),
   };
 }
 
@@ -114,19 +149,37 @@ export function getUsageByDimension(
   const { clause, params } = buildWhere(filters);
   const sql = `
     SELECT ${column} AS key, model,
-      SUM(message_count)         AS messageCount,
-      SUM(input_tokens)          AS input,
-      SUM(cache_write_5m_tokens) AS cw5,
-      SUM(cache_write_1h_tokens) AS cw1,
-      SUM(cache_read_tokens)     AS cacheRead,
-      SUM(output_tokens)         AS output,
-      SUM(web_search_requests)   AS webSearch,
-      SUM(web_fetch_requests)    AS webFetch
+      ${USAGE_SUMS}
     FROM usage_rollup
     ${clause}
     GROUP BY key, model`;
   const rows = db.prepare(sql).all(params) as RawUsageRow[];
   return rows.map(toDimensionRow);
+}
+
+/**
+ * Agrège l'usage par (jour, projet, modèle). Sert à construire le graphique d'évolution
+ * empilé par projet ; le coût est calculé en aval (par modèle), d'où la présence du modèle.
+ */
+export function getUsageByDayAndProject(
+  db: Db,
+  filters: UsageFilters = {},
+): DayProjectUsageRow[] {
+  const { clause, params } = buildWhere(filters);
+  const sql = `
+    SELECT day, project_slug AS project, model,
+      ${USAGE_SUMS}
+    FROM usage_rollup
+    ${clause}
+    GROUP BY day, project, model`;
+  const rows = db.prepare(sql).all(params) as RawDayProjectRow[];
+  return rows.map((raw) => ({
+    day: raw.day,
+    project: raw.project,
+    model: raw.model,
+    messageCount: raw.messageCount,
+    counts: rawToCounts(raw),
+  }));
 }
 
 /** Récupère les métadonnées de session (optionnellement filtrées par projet). */

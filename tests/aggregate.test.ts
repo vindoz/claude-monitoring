@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateDimension, aggregateSessions } from '../src/report/aggregate.js';
+import {
+  aggregateDayProject,
+  aggregateDimension,
+  aggregateSessions,
+} from '../src/report/aggregate.js';
 import { createResolver, loadPricingTable } from '../src/pricing/pricing-loader.js';
-import type { DimensionUsageRow, SessionMeta } from '../src/db/queries.js';
+import type { DayProjectUsageRow, DimensionUsageRow, SessionMeta } from '../src/db/queries.js';
 
 const resolver = createResolver(loadPricingTable());
 
@@ -33,6 +37,33 @@ describe('aggregateDimension', () => {
   it('signale les modèles non tarifés ayant consommé des tokens', () => {
     const report = aggregateDimension([row('A', 'gpt-4', 1000, 0)], resolver);
     expect(report.unknownModels).toContain('gpt-4');
+  });
+});
+
+describe('aggregateDayProject', () => {
+  /** Construit une ligne (jour, projet, modèle) de test. */
+  function dpRow(day: string, project: string, model: string, input: number): DayProjectUsageRow {
+    return {
+      day,
+      project,
+      model,
+      messageCount: 1,
+      counts: { input, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, webSearch: 0, webFetch: 0 },
+    };
+  }
+
+  it('somme le coût par (jour, projet) en cumulant les modèles', () => {
+    const rows = [
+      dpRow('2026-06-01', '-A', 'claude-opus-4-8', 1_000_000), // 15 $
+      dpRow('2026-06-01', '-A', 'claude-haiku-4-5', 1_000_000), // 1 $
+      dpRow('2026-06-01', '-B', 'claude-opus-4-8', 1_000_000), // 15 $
+    ];
+    const cells = aggregateDayProject(rows, resolver);
+    const a = cells.find((c) => c.project === '-A');
+    const b = cells.find((c) => c.project === '-B');
+    expect(a?.cost).toBeCloseTo(16, 5);
+    expect(a?.messageCount).toBe(2);
+    expect(b?.cost).toBeCloseTo(15, 5);
   });
 });
 

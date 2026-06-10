@@ -1,14 +1,20 @@
 import { createServer } from 'node:http';
 import { openDatabase, type Db } from '../db/database.js';
 import { ingest } from '../db/ingest.js';
-import { getSessionsMeta, getUsageByDimension, type UsageFilters } from '../db/queries.js';
 import {
+  getSessionsMeta,
+  getUsageByDayAndProject,
+  getUsageByDimension,
+  type UsageFilters,
+} from '../db/queries.js';
+import {
+  aggregateDayProject,
   aggregateDimension,
   aggregateSessions,
   type DimensionReport,
 } from '../report/aggregate.js';
 import { renderDashboard, type DashboardData } from '../web/render-html.js';
-import { buildSeries, type Granularity } from '../web/timeseries.js';
+import { buildStackedSeries, type Granularity } from '../web/timeseries.js';
 import type { PricingResolver } from '../pricing/pricing-loader.js';
 import { writeErr, writeOut } from '../format/output.js';
 import { buildResolver, resolveDbPath, resolveProjectsDir, type CommonOptions } from './common.js';
@@ -53,7 +59,10 @@ export function buildDashboardData(
   const byModel = aggregateDimension(getUsageByDimension(db, 'model', filters), resolver);
   const byDayFull = aggregateDimension(getUsageByDimension(db, 'day', filters), resolver);
   const byDay = topByKeyDesc(byDayFull, 30);
-  const series = buildSeries(byDayFull.rows, params.granularity);
+  const stacked = buildStackedSeries(
+    aggregateDayProject(getUsageByDayAndProject(db, filters), resolver),
+    params.granularity,
+  );
 
   const sessionsFull = aggregateSessions(
     getUsageByDimension(db, 'session', filters),
@@ -70,7 +79,7 @@ export function buildDashboardData(
     byModel,
     byDay,
     sessions,
-    series,
+    stacked,
     granularity: params.granularity,
     since: params.since,
     until: params.until,

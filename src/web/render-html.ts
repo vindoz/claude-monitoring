@@ -2,7 +2,7 @@ import type { DimensionReport, SessionReport } from '../report/aggregate.js';
 import { totalTokens } from '../pricing/cost-model.js';
 import { prettyProject } from '../parser/session-path.js';
 import { formatDateTime, formatTokens, formatUsd } from '../format/currency.js';
-import { renderChart, type Granularity, type SeriesPoint } from './timeseries.js';
+import { renderStackedChart, type Granularity, type StackedSeries } from './timeseries.js';
 
 /** Données nécessaires au rendu du tableau de bord. */
 export interface DashboardData {
@@ -12,8 +12,8 @@ export interface DashboardData {
   byModel: DimensionReport;
   byDay: DimensionReport;
   sessions: SessionReport;
-  /** Série temporelle pour le graphique d'évolution. */
-  series: SeriesPoint[];
+  /** Série temporelle empilée par projet pour le graphique d'évolution. */
+  stacked: StackedSeries;
   /** Granularité courante du graphique. */
   granularity: Granularity;
   /** Bornes de période sélectionnées (pour pré-remplir le formulaire). */
@@ -130,12 +130,27 @@ function controlsForm(data: DashboardData): string {
   </form>`;
 }
 
-/** Rend la section graphique d'évolution des coûts. */
+/** Rend la légende du graphique (pastille de couleur + libellé de projet). */
+function chartLegend(series: StackedSeries): string {
+  if (series.projects.length === 0) {
+    return '';
+  }
+  const items = series.projects
+    .map(
+      (p) =>
+        `<span class="lgi"><span class="sw" style="background:${p.color}"></span>${escapeHtml(p.label)}</span>`,
+    )
+    .join('');
+  return `<div class="legend">${items}</div>`;
+}
+
+/** Rend la section graphique d'évolution des coûts empilé par projet. */
 function chartSection(data: DashboardData): string {
   const unit = data.granularity === 'week' ? 'hebdomadaire' : 'quotidienne';
   return `<section>
-    <h2>Évolution des coûts (${escapeHtml(unit)})</h2>
-    ${renderChart(data.series, data.granularity)}
+    <h2>Évolution des coûts par projet (${escapeHtml(unit)})</h2>
+    ${renderStackedChart(data.stacked, data.granularity)}
+    ${chartLegend(data.stacked)}
   </section>`;
 }
 
@@ -180,11 +195,14 @@ export function renderDashboard(data: DashboardData): string {
     .controls button { background: #238636; color: #fff; border: 0; border-radius: 6px; padding: 7px 16px; font-size: 13px; cursor: pointer; }
     .controls .reset { color: #8b949e; font-size: 12px; text-decoration: none; align-self: center; }
     .chart { width: 100%; height: auto; }
-    .chart .cbar { fill: #3fb950; }
-    .chart .cbar:hover { fill: #56d364; }
+    .chart .seg { stroke: #0d1117; stroke-width: .5; }
+    .chart .seg:hover { opacity: .82; }
     .chart .grid { stroke: #21262d; stroke-width: 1; }
     .chart .axis { stroke: #30363d; stroke-width: 1; }
     .chart .xlbl, .chart .ylbl { fill: #8b949e; font-size: 10px; font-family: ui-monospace, monospace; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; font-size: 12px; color: #8b949e; }
+    .legend .lgi { display: flex; align-items: center; gap: 6px; }
+    .legend .sw { width: 11px; height: 11px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
     .empty { color: #8b949e; }
   </style>
 </head>
