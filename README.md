@@ -15,9 +15,21 @@ qu'un script de statusline.
    **modèle** ou **jour**.
 3. **Coût de la session en cours** dans le statusline de Claude Code.
 4. **Occupation du contexte en temps réel** dans le statusline.
+5. **Tableau de bord web** (`ccmon serve`) — page navigateur avec graphique d'évolution des
+   coûts (quotidien/hebdomadaire), sélecteur de période, et tableaux par projet/modèle/jour.
+6. **Auto-démarrage** (`ccmon install --autostart`) — ouvre le dashboard à l'ouverture d'une
+   session Claude Code.
 
 Les coûts des **sous-agents** (transcripts `subagents/**`) sont inclus dans le coût de leur
 session parente.
+
+## Démarrage rapide
+
+```sh
+npm install && npm run build      # 1. construire
+node dist/cli.js install          # 2. intégrer à Claude Code (statusline + skill /sessions)
+node dist/cli.js serve            # 3. ouvrir le tableau de bord → http://127.0.0.1:4757/
+```
 
 ## Prérequis
 
@@ -73,11 +85,44 @@ ccmon summary --by session --json
 
 # Statusline (lit le JSON de Claude Code sur stdin)
 echo '{"cost":{"total_cost_usd":0.12},"context_window":{"used_percentage":32}}' | ccmon statusline
+
+# Tableau de bord web
+ccmon serve                       # http://127.0.0.1:4757/
+ccmon serve --port 8080           # autre port
 ```
 
 L'ingestion est **incrémentale** : seuls les fichiers nouveaux ou modifiés sont relus.
 Les messages de progression et avertissements vont sur **stderr** ; la sortie `--json` reste
 propre sur **stdout**.
+
+## Tableau de bord web (`ccmon serve`)
+
+Lance un serveur HTTP local (module Node natif, **sans dépendance**) servant un tableau de
+bord à `http://127.0.0.1:4757/` (port modifiable via `--port` ou `CCMON_PORT`).
+
+- **Graphique d'évolution** des coûts, granularité **quotidienne** ou **hebdomadaire**.
+- **Sélecteur de période** (« Du / Au ») qui filtre l'ensemble du tableau de bord.
+- Tableaux **par projet, par modèle, par jour** + liste des **sessions récentes**.
+- Recharger la page ré-ingère les nouveaux transcripts (incrémental).
+
+### Ouverture automatique à chaque session (`--autostart`)
+
+```sh
+node dist/cli.js install --autostart
+```
+
+Ajoute un hook `SessionStart` qui, à l'ouverture d'une session Claude Code, démarre le
+dashboard s'il ne tourne pas déjà et l'ouvre dans le navigateur.
+
+> **Note de sécurité** : Claude Code peut bloquer l'écriture de ce hook dans `settings.json`
+> (« persistance non autorisée »). Dans ce cas, lancez la commande vous-même (préfixe `!`
+> dans le prompt), ou ajoutez manuellement dans l'objet `"hooks"` de `~/.claude/settings.json` :
+>
+> ```json
+> "SessionStart": [
+>   { "hooks": [ { "type": "command", "command": "<chemin>/scripts/session-start.sh" } ] }
+> ]
+> ```
 
 ## Tarification
 
@@ -111,6 +156,7 @@ code de sortie non nul).
 | `CCMON_PROJECTS_DIR` | répertoire des transcripts | `<claude_home>/projects` |
 | `CCMON_DB` | fichier de base SQLite | `<claude_home>/claude-monitoring.db` |
 | `CCMON_PRICING` | fichier de pricing override | `<claude_home>/claude-monitoring.pricing.json` |
+| `CCMON_PORT` | port du tableau de bord web | `4757` |
 
 ## Développement
 
@@ -129,6 +175,9 @@ npm run test:coverage
   requêtes d'agrégation.
 - `report/` : agrégation et calcul des coûts par dimension.
 - `format/` : rendu terminal (tableaux, barre de contexte, montants).
-- `commands/` : sous-commandes `ingest`, `sessions`, `summary`, `statusline`, `install`.
+- `web/` : rendu HTML du tableau de bord et série temporelle (graphique SVG).
+- `commands/` : sous-commandes `ingest`, `sessions`, `summary`, `statusline`, `serve`, `install`.
+- `scripts/` : `statusline.sh` (relai stdin → `ccmon statusline`) et `session-start.sh`
+  (hook d'auto-démarrage du dashboard).
 
 La base de données n'est jamais committée (voir `.gitignore`) et reste en dehors du dépôt.
