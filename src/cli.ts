@@ -4,6 +4,7 @@ import { runIngest } from './commands/ingest.js';
 import { runSessions } from './commands/sessions.js';
 import { runSummary } from './commands/summary.js';
 import { runStatusline } from './commands/statusline.js';
+import { runServe } from './commands/serve.js';
 import { runInstall } from './commands/install.js';
 import { writeErr } from './format/output.js';
 import type { Dimension } from './db/queries.js';
@@ -104,6 +105,28 @@ program
     await runStatusline({
       format: opts.format,
       noColor: opts.color === false,
+    });
+  });
+
+program
+  .command('serve')
+  .description('Lance un tableau de bord web local (coûts par projet, modèle, jour + sessions)')
+  .option('--port <n>', 'port d’écoute', toInt, 4757)
+  .option('--host <host>', 'adresse d’écoute', '127.0.0.1')
+  .option('--limit <n>', 'nombre de sessions affichées', toInt, 30)
+  .option('--no-ingest', 'ne pas (ré)ingérer au démarrage et au chargement')
+  .option('--db <path>', 'chemin de la base SQLite')
+  .option('--projects-dir <path>', 'répertoire des transcripts Claude Code')
+  .option('--pricing <path>', 'fichier de pricing override')
+  .action((opts) => {
+    runServe({
+      port: opts.port,
+      host: opts.host,
+      sessionsLimit: opts.limit,
+      noIngest: opts.ingest === false,
+      db: opts.db,
+      projectsDir: opts.projectsDir,
+      pricing: opts.pricing,
     });
   });
 
