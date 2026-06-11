@@ -25,11 +25,11 @@ describe('createResolver', () => {
     expect(r.pricing.input).toBe(1);
   });
 
-  it('applique le tarif Fable 5 communiqué', () => {
+  it('applique le tarif Fable 5 (2× Opus 4.8)', () => {
     const r = resolver.resolve('claude-fable-5');
-    expect(r.pricing.input).toBe(10);
-    expect(r.pricing.output).toBe(50);
-    expect(r.pricing.cacheRead).toBe(1);
+    expect(r.pricing.input).toBe(30);
+    expect(r.pricing.output).toBe(150);
+    expect(r.pricing.cacheRead).toBe(3);
   });
 
   it('retombe sur la famille pour un alias nu', () => {

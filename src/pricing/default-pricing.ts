@@ -4,9 +4,8 @@
  *
  * Sources :
  * - Opus / Sonnet / Haiku : tarifs publics Anthropic (tiers standard, prompt caching inclus).
- * - Fable 5 : tarif communiqué par l'utilisateur — input 10 $, output 50 $, remise prompt
- *   caching de 90 % sur l'input → cache read 1 $, cache write 5 min 12,50 $ (×1,25),
- *   cache write 1 h 20 $ (×2).
+ * - Fable 5 : deux fois plus cher qu'Opus 4.8 (information utilisateur) — input 30 $, output
+ *   150 $, caches dérivés sur l'input 30 $ → cache read 3 $, write 5 min 37,50 $, write 1 h 60 $.
  *
  * Les multiplicateurs de cache suivent la règle Anthropic : écriture 5 min = 1,25 × input,
  * écriture 1 h = 2 × input, lecture = 0,1 × input.
@@ -58,11 +57,11 @@ const HAIKU: ModelPricing = {
 };
 
 const FABLE: ModelPricing = {
-  input: 10,
-  output: 50,
-  cacheWrite5m: 12.5,
-  cacheWrite1h: 20,
-  cacheRead: 1,
+  input: 30,
+  output: 150,
+  cacheWrite5m: 37.5,
+  cacheWrite1h: 60,
+  cacheRead: 3,
   webSearchPerThousand: 10,
 };
 

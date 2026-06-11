@@ -30,10 +30,10 @@ describe('computeSessionCost', () => {
     const projectsDir = makeTempDir();
     const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
       assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', usage: { output_tokens: 1_000_000 } }), // 75 $
-      assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-fable-5', usage: { output_tokens: 1_000_000 } }), // 50 $
+      assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-fable-5', usage: { output_tokens: 1_000_000 } }), // 150 $ (2× Opus)
     ]);
     const r = computeSessionCost({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
-    expect(r).toBeCloseTo(125, 3);
+    expect(r).toBeCloseTo(225, 3);
   });
 
   it('reconstruit le chemin depuis cwd + sessionId si transcript_path est absent', () => {
