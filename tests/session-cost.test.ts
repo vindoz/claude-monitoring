@@ -6,7 +6,7 @@ import { assistantEvent, makeTempDir, writeSessionFile, writeSubagentFile } from
 const resolver = createResolver(loadPricingTable());
 
 describe('computeSessionCost', () => {
-  it('inclut le coût des sous-agents (1M input opus main + 1M input opus subagent = 30 $)', () => {
+  it('inclut le coût des sous-agents (1M input opus main + 1M input opus subagent = 10 $)', () => {
     const projectsDir = makeTempDir();
     const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
       assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', usage: { input_tokens: 1_000_000 } }),
@@ -15,7 +15,7 @@ describe('computeSessionCost', () => {
       assistantEvent({ id: 's1', requestId: 'rs', model: 'claude-opus-4-8', usage: { input_tokens: 1_000_000 } }),
     ]);
     const r = computeSessionCost({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
-    expect(r).toBeCloseTo(30, 3);
+    expect(r).toBeCloseTo(10, 3);
   });
 
   it('déduplique les lignes répétées du transcript principal', () => {
@@ -23,17 +23,17 @@ describe('computeSessionCost', () => {
     const dup = assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', usage: { input_tokens: 1_000_000 } });
     const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [dup, dup, dup]);
     const r = computeSessionCost({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
-    expect(r).toBeCloseTo(15, 3); // 1M input opus une seule fois
+    expect(r).toBeCloseTo(5, 3); // 1M input opus une seule fois
   });
 
   it('applique le tarif par modèle (opus + fable-5)', () => {
     const projectsDir = makeTempDir();
     const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
-      assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', usage: { output_tokens: 1_000_000 } }), // 75 $
-      assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-fable-5', usage: { output_tokens: 1_000_000 } }), // 150 $ (2× Opus)
+      assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', usage: { output_tokens: 1_000_000 } }), // 25 $
+      assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-fable-5', usage: { output_tokens: 1_000_000 } }), // 50 $ (2× Opus)
     ]);
     const r = computeSessionCost({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
-    expect(r).toBeCloseTo(225, 3);
+    expect(r).toBeCloseTo(75, 3);
   });
 
   it('reconstruit le chemin depuis cwd + sessionId si transcript_path est absent', () => {
@@ -43,7 +43,7 @@ describe('computeSessionCost', () => {
       assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', usage: { input_tokens: 1_000_000 } }),
     ]);
     const r = computeSessionCost({ sessionId: 'sess1', cwd: '/proj', projectsDir, resolver });
-    expect(r).toBeCloseTo(15, 3);
+    expect(r).toBeCloseTo(5, 3);
   });
 
   it('renvoie null quand la session est introuvable (repli sur le natif)', () => {

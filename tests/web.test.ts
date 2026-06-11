@@ -44,7 +44,7 @@ describe('dashboard', () => {
     const html = renderDashboard(buildFromFixture());
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('Claude Monitoring');
-    expect(html).toContain('$15.00'); // 1M tokens input opus
+    expect(html).toContain('$5.00'); // 1M tokens input opus
     expect(html).toContain('<table>');
   });
 

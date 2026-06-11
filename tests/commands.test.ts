@@ -38,7 +38,7 @@ describe('runSessions', () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.sessions).toHaveLength(1);
     expect(parsed.sessions[0].title).toBe('Session de test');
-    expect(parsed.sessions[0].costUsd).toBeCloseTo(15, 3); // 1M input opus = 15 $
+    expect(parsed.sessions[0].costUsd).toBeCloseTo(5, 3); // 1M input opus = 5 $
   });
 
   it('signale une base absente avec --no-ingest', () => {

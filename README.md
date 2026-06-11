@@ -135,21 +135,22 @@ dashboard s'il ne tourne pas déjà et l'ouvre dans le navigateur.
 ## Tarification
 
 Les coûts sont calculés à partir des tokens (`usage`) et d'une grille tarifaire par défaut
-(USD par million de tokens) :
+(USD par million de tokens, tarifs publics Anthropic relevés le 2026-06-11) :
 
-| Modèle | input | output | cache write 5 min | cache read |
-|--------|-------|--------|-------------------|------------|
-| Opus   | 15    | 75     | 18,75             | 1,50       |
-| Sonnet | 3     | 15     | 3,75              | 0,30       |
-| Haiku  | 1     | 5      | 1,25              | 0,10       |
-| Fable 5| 30    | 150    | 37,50             | 3,00       |
+| Modèle              | input | output | cache write 5 min | cache read |
+|---------------------|-------|--------|-------------------|------------|
+| Opus 4.5 → 4.8      | 5     | 25     | 6,25              | 0,50       |
+| Opus 4 / 4.1 (anciens) | 15 | 75     | 18,75             | 1,50       |
+| Sonnet              | 3     | 15     | 3,75              | 0,30       |
+| Haiku               | 1     | 5      | 1,25              | 0,10       |
+| Fable 5             | 10    | 50     | 12,50             | 1,00       |
 
 Pour surcharger ou compléter ces tarifs, créez un fichier JSON et pointez `CCMON_PRICING`
 dessus :
 
 ```json
 {
-  "claude-fable-5": { "input": 30, "output": 150, "cacheWrite5m": 37.5, "cacheWrite1h": 60, "cacheRead": 3 }
+  "claude-fable-5": { "input": 10, "output": 50, "cacheWrite5m": 12.5, "cacheWrite1h": 20, "cacheRead": 1 }
 }
 ```
 

@@ -2,10 +2,11 @@
  * Grille tarifaire par défaut, exprimée en dollars (USD) par **million de tokens** (MTok),
  * sauf `webSearchPerThousand` / `webFetchPerThousand` exprimés par millier de requêtes.
  *
- * Sources :
- * - Opus / Sonnet / Haiku : tarifs publics Anthropic (tiers standard, prompt caching inclus).
- * - Fable 5 : deux fois plus cher qu'Opus 4.8 (information utilisateur) — input 30 $, output
- *   150 $, caches dérivés sur l'input 30 $ → cache read 3 $, write 5 min 37,50 $, write 1 h 60 $.
+ * Source : tarifs publics Anthropic (platform.claude.com/docs/en/about-claude/pricing,
+ * relevés le 2026-06-11, tiers standard, prompt caching inclus) :
+ * - Opus 4.5 → 4.8 : 5 $ / 25 $ (le tarif 15 $ / 75 $ ne concerne que les anciens Opus 4 / 4.1) ;
+ * - Fable 5 : 10 $ / 50 $ (soit 2× Opus 4.8) ;
+ * - Sonnet 4.5 / 4.6 : 3 $ / 15 $ ; Haiku 4.5 : 1 $ / 5 $.
  *
  * Les multiplicateurs de cache suivent la règle Anthropic : écriture 5 min = 1,25 × input,
  * écriture 1 h = 2 × input, lecture = 0,1 × input.
@@ -30,6 +31,16 @@ export interface ModelPricing {
 }
 
 const OPUS: ModelPricing = {
+  input: 5,
+  output: 25,
+  cacheWrite5m: 6.25,
+  cacheWrite1h: 10,
+  cacheRead: 0.5,
+  webSearchPerThousand: 10,
+};
+
+/** Anciens Opus 4 / 4.1 (dépréciés), seuls modèles restés au tarif historique. */
+const OPUS_LEGACY: ModelPricing = {
   input: 15,
   output: 75,
   cacheWrite5m: 18.75,
@@ -57,11 +68,11 @@ const HAIKU: ModelPricing = {
 };
 
 const FABLE: ModelPricing = {
-  input: 30,
-  output: 150,
-  cacheWrite5m: 37.5,
-  cacheWrite1h: 60,
-  cacheRead: 3,
+  input: 10,
+  output: 50,
+  cacheWrite5m: 12.5,
+  cacheWrite1h: 20,
+  cacheRead: 1,
   webSearchPerThousand: 10,
 };
 
@@ -78,7 +89,14 @@ export const FREE_PRICING: ModelPricing = {
 export const DEFAULT_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-8': OPUS,
   'claude-opus-4-7': OPUS,
+  'claude-opus-4-6': OPUS,
+  'claude-opus-4-5': OPUS,
+  'claude-opus-4-1': OPUS_LEGACY,
+  'claude-opus-4-0': OPUS_LEGACY,
+  // Forme canonique de l'id complet `claude-opus-4-20250514` (suffixe de date retiré).
+  'claude-opus-4': OPUS_LEGACY,
   'claude-sonnet-4-6': SONNET,
+  'claude-sonnet-4-5': SONNET,
   'claude-haiku-4-5': HAIKU,
   'claude-fable-5': FABLE,
 };

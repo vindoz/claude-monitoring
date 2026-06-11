@@ -22,16 +22,16 @@ function row(key: string, model: string, input: number, output: number): Dimensi
 describe('aggregateDimension', () => {
   it('agrège par clé, calcule le coût par modèle et trie par coût décroissant', () => {
     const rows = [
-      row('A', 'claude-opus-4-8', 1_000_000, 0), // 15 $
+      row('A', 'claude-opus-4-8', 1_000_000, 0), // 5 $
       row('A', 'claude-haiku-4-5', 1_000_000, 0), // 1 $
-      row('B', 'claude-opus-4-8', 2_000_000, 0), // 30 $
+      row('B', 'claude-opus-4-8', 2_000_000, 0), // 10 $
     ];
     const report = aggregateDimension(rows, resolver);
     expect(report.rows[0].key).toBe('B');
-    expect(report.rows[0].cost).toBeCloseTo(30, 5);
+    expect(report.rows[0].cost).toBeCloseTo(10, 5);
     expect(report.rows[1].key).toBe('A');
-    expect(report.rows[1].cost).toBeCloseTo(16, 5);
-    expect(report.total.cost).toBeCloseTo(46, 5);
+    expect(report.rows[1].cost).toBeCloseTo(6, 5);
+    expect(report.total.cost).toBeCloseTo(16, 5);
   });
 
   it('signale les modèles non tarifés ayant consommé des tokens', () => {
@@ -54,16 +54,16 @@ describe('aggregateDayProject', () => {
 
   it('somme le coût par (jour, projet) en cumulant les modèles', () => {
     const rows = [
-      dpRow('2026-06-01', '-A', 'claude-opus-4-8', 1_000_000), // 15 $
+      dpRow('2026-06-01', '-A', 'claude-opus-4-8', 1_000_000), // 5 $
       dpRow('2026-06-01', '-A', 'claude-haiku-4-5', 1_000_000), // 1 $
-      dpRow('2026-06-01', '-B', 'claude-opus-4-8', 1_000_000), // 15 $
+      dpRow('2026-06-01', '-B', 'claude-opus-4-8', 1_000_000), // 5 $
     ];
     const cells = aggregateDayProject(rows, resolver);
     const a = cells.find((c) => c.project === '-A');
     const b = cells.find((c) => c.project === '-B');
-    expect(a?.cost).toBeCloseTo(16, 5);
+    expect(a?.cost).toBeCloseTo(6, 5);
     expect(a?.messageCount).toBe(2);
-    expect(b?.cost).toBeCloseTo(15, 5);
+    expect(b?.cost).toBeCloseTo(5, 5);
   });
 });
 
@@ -78,7 +78,7 @@ describe('aggregateSessions', () => {
     const report = aggregateSessions(usage, metas, resolver);
     expect(report.rows[0].meta.sessionId).toBe('s2'); // lastTs plus récent
     expect(report.rows[1].models).toEqual(['claude-opus-4-8']);
-    expect(report.total.cost).toBeCloseTo(16, 5);
+    expect(report.total.cost).toBeCloseTo(6, 5);
   });
 
   it('gère une session sans métadonnées', () => {

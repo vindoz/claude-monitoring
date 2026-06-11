@@ -15,7 +15,7 @@ describe('createResolver', () => {
   it('résout un id exact', () => {
     const r = resolver.resolve('claude-opus-4-8');
     expect(r.match).toBe('exact');
-    expect(r.pricing.input).toBe(15);
+    expect(r.pricing.input).toBe(5);
   });
 
   it('résout un id avec suffixe de date via la forme canonique', () => {
@@ -27,15 +27,20 @@ describe('createResolver', () => {
 
   it('applique le tarif Fable 5 (2× Opus 4.8)', () => {
     const r = resolver.resolve('claude-fable-5');
-    expect(r.pricing.input).toBe(30);
-    expect(r.pricing.output).toBe(150);
-    expect(r.pricing.cacheRead).toBe(3);
+    expect(r.pricing.input).toBe(10);
+    expect(r.pricing.output).toBe(50);
+    expect(r.pricing.cacheRead).toBe(1);
+  });
+
+  it('applique le tarif historique aux anciens Opus 4 / 4.1', () => {
+    expect(resolver.resolve('claude-opus-4-1-20250805').pricing.input).toBe(15);
+    expect(resolver.resolve('claude-opus-4-20250514').pricing.input).toBe(15);
   });
 
   it('retombe sur la famille pour un alias nu', () => {
     const r = resolver.resolve('opus');
     expect(r.match).toBe('family');
-    expect(r.pricing.input).toBe(15);
+    expect(r.pricing.input).toBe(5);
   });
 
   it('traite les events synthétiques comme gratuits', () => {
