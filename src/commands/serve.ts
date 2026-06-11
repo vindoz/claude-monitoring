@@ -74,6 +74,13 @@ export function buildDashboardData(
 
   const unknownModels = [...new Set([...byProject.unknownModels, ...byModel.unknownModels])];
 
+  // Grille tarifaire effective : tarif résolu pour chaque modèle rencontré sur la période,
+  // dans l'ordre du tableau « par modèle » (coût décroissant).
+  const pricingRows = byModel.rows.map((row) => {
+    const { match, pricing } = resolver.resolve(row.key);
+    return { model: row.key, match, pricing };
+  });
+
   return {
     generatedAt: params.generatedAt,
     byProject,
@@ -85,6 +92,7 @@ export function buildDashboardData(
     since: params.since,
     until: params.until,
     unknownModels,
+    pricingRows,
   };
 }
 

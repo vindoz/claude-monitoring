@@ -148,8 +148,8 @@ export function buildStackedSeries(
   return { points, projects };
 }
 
-/** Dimensions du graphique SVG. */
-const CHART = { width: 880, height: 240, padL: 56, padR: 14, padT: 18, padB: 42 };
+/** Dimensions du graphique SVG (ratio plat, pensé pour s'étirer en pleine largeur). */
+const CHART = { width: 1200, height: 280, padL: 56, padR: 14, padT: 18, padB: 42 };
 
 /** Échappe le texte injecté dans un `<title>` SVG (évite tout dépendance cyclique au rendu HTML). */
 function escapeXml(value: string): string {
@@ -171,8 +171,8 @@ export function renderStackedChart(series: StackedSeries, granularity: Granulari
   const maxCost = Math.max(...series.points.map((p) => p.cost), 1);
   const n = series.points.length;
   const slot = plotW / n;
-  const barW = Math.max(1, Math.min(slot * 0.72, 46));
-  const labelStep = Math.max(1, Math.ceil(n / 12));
+  const barW = Math.max(1, Math.min(slot * 0.72, 52));
+  const labelStep = Math.max(1, Math.ceil(n / 16));
   const colorOf = new Map(series.projects.map((p) => [p.project, p.color]));
 
   const bars = series.points

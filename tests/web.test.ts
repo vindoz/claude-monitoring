@@ -48,6 +48,16 @@ describe('dashboard', () => {
     expect(html).toContain('<table>');
   });
 
+  it('affiche la grille tarifaire appliquée aux modèles rencontrés', () => {
+    const data = buildFromFixture();
+    expect(data.pricingRows).toEqual([
+      expect.objectContaining({ model: 'claude-opus-4-8', match: 'exact' }),
+    ]);
+    const html = renderDashboard(data);
+    expect(html).toContain('Grille tarifaire appliquée');
+    expect(html).toContain('$25.00'); // output Opus 4.8
+  });
+
   it('échappe le contenu utilisateur (anti-XSS)', () => {
     const html = renderDashboard(buildFromFixture());
     expect(html).not.toContain('<script>alert(1)</script>');
