@@ -1,7 +1,12 @@
-import { relative, sep, basename, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { relative, sep, basename, dirname, join } from 'node:path';
+import type { AgentMeta } from '../types/claude-events.js';
 
 /** Nom du répertoire contenant les transcripts de sous-agents d'une session. */
 export const SUBAGENTS_DIRNAME = 'subagents';
+
+/** Motif de nommage d'un transcript de sous-agent : `agent-<id>.jsonl`. */
+const AGENT_FILE_PATTERN = /^agent-(.+)\.jsonl$/;
 
 /**
  * Décomposition d'un chemin de transcript en informations de session.
@@ -13,6 +18,13 @@ export interface SessionPathInfo {
   sessionId: string;
   /** Vrai si le fichier est un transcript de sous-agent (`<session>/subagents/**`). */
   isSubagent: boolean;
+  /**
+   * Identifiant de l'agent, ou `null` si le fichier n'est pas un transcript d'agent.
+   * `isSubagent` ne suffit PAS à le déduire : il est vrai pour tout chemin imbriqué sous un
+   * répertoire de session, y compris des fichiers qui ne sont pas des agents (par exemple
+   * `subagents/workflows/wf_<id>/journal.jsonl`).
+   */
+  agentId: string | null;
 }
 
 /**
@@ -45,6 +57,7 @@ export function parseSessionPath(filePath: string, projectsDir: string): Session
       projectSlug,
       sessionId: basename(second, '.jsonl'),
       isSubagent: false,
+      agentId: null,
     };
   }
 
@@ -53,7 +66,57 @@ export function parseSessionPath(filePath: string, projectsDir: string): Session
     projectSlug,
     sessionId: second,
     isSubagent: true,
+    agentId: agentIdFromPath(filePath),
   };
+}
+
+/**
+ * Extrait l'identifiant d'agent d'un chemin de transcript, ou `null` si le fichier n'est pas
+ * un transcript d'agent.
+ *
+ * Les DEUX conditions sont exigées, car le répertoire d'une session contient d'autres fichiers
+ * `.jsonl` : le chemin doit traverser un répertoire `subagents`, ET le nom de fichier doit
+ * suivre `agent-<id>.jsonl`. Sans cette garde, le `journal.jsonl` d'un workflow (présent sous
+ * `subagents/workflows/`) serait ingéré comme un agent nommé `journal`, en collision de clé
+ * primaire entre deux workflows d'une même session.
+ */
+export function agentIdFromPath(filePath: string): string | null {
+  const matched = AGENT_FILE_PATTERN.exec(basename(filePath));
+  if (!matched) {
+    return null;
+  }
+  const parents = dirname(filePath).split(sep);
+  return parents.includes(SUBAGENTS_DIRNAME) ? matched[1] : null;
+}
+
+/**
+ * Chemin du fichier de métadonnées jumeau d'un transcript d'agent
+ * (`agent-<id>.jsonl` → `agent-<id>.meta.json`).
+ */
+export function agentMetaPathFor(agentTranscript: string): string {
+  return `${agentTranscript.replace(/\.jsonl$/, '')}.meta.json`;
+}
+
+/**
+ * Lit les métadonnées d'un agent (titre, type, parent). Lecture tolérante, à l'image du parser
+ * de transcripts : fichier absent, illisible ou JSON invalide renvoient `null` plutôt que de
+ * faire échouer l'ingestion.
+ */
+export function readAgentMeta(agentTranscript: string): AgentMeta | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(agentMetaPathFor(agentTranscript), 'utf8'));
+    return typeof parsed === 'object' && parsed !== null ? (parsed as AgentMeta) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Titre affichable d'un agent. Replis successifs : la `description` du meta (absente pour les
+ * agents de workflow), puis le type d'agent, puis l'identifiant — une ligne n'est jamais vide.
+ */
+export function agentTitle(meta: AgentMeta | null, agentId: string): string {
+  return meta?.description || meta?.agentType || agentId;
 }
 
 /**

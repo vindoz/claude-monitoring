@@ -46,6 +46,32 @@ export interface SessionMeta {
   gitBranch: string | null;
 }
 
+/** Métadonnées d'un sous-agent (titre, type, filiation, bornes temporelles). */
+export interface AgentMetaRow {
+  agentId: string;
+  sessionId: string;
+  projectSlug: string;
+  agentType: string | null;
+  /** Titre donné au lancement ; absent pour les agents de workflow. */
+  description: string | null;
+  /** Agent parent, pour les agents lancés par un autre agent. */
+  parentAgentId: string | null;
+  spawnDepth: number | null;
+  firstTs: number | null;
+  lastTs: number | null;
+}
+
+/** Ligne d'usage agrégée au grain (agent, modèle). */
+export interface AgentUsageRow {
+  agentId: string;
+  sessionId: string;
+  projectSlug: string;
+  /** Modèle (nécessaire car le tarif en dépend). */
+  model: string;
+  messageCount: number;
+  counts: UsageCounts;
+}
+
 /** Colonne SQL correspondant à une dimension. */
 const DIMENSION_COLUMN: Record<Dimension, string> = {
   project: 'project_slug',
@@ -196,6 +222,74 @@ export function getSessionsMeta(db: Db, filters: UsageFilters = {}): SessionMeta
     FROM sessions
     ${clause}`;
   return db.prepare(sql).all(params) as SessionMeta[];
+}
+
+/**
+ * Indique si la base possède le grain agent. Une base créée par une version antérieure et
+ * ouverte en LECTURE SEULE (`--no-ingest`) n'a pas ces tables : les requêtes agent dégradent
+ * alors à vide plutôt que de lever. Toute ouverture normale les crée définitivement.
+ */
+export function hasAgentTables(db: Db): boolean {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM sqlite_master
+       WHERE type = 'table' AND name IN ('agents', 'agent_rollup')`,
+    )
+    .get() as { n: number };
+  return row.n === 2;
+}
+
+/**
+ * Agrège l'usage des sous-agents par (agent, modèle). Le filtre de période porte sur
+ * `agent_rollup.day`, construit par la même règle que `usage_rollup.day` : la fenêtre
+ * temporelle d'un agent est donc toujours cohérente avec celle de sa session parente.
+ */
+export function getAgentUsage(db: Db, filters: UsageFilters = {}): AgentUsageRow[] {
+  if (!hasAgentTables(db)) {
+    return [];
+  }
+  const { clause, params } = buildWhere(filters);
+  const sql = `
+    SELECT agent_id AS agentId, session_id AS sessionId, project_slug AS projectSlug, model,
+      ${USAGE_SUMS}
+    FROM agent_rollup
+    ${clause}
+    GROUP BY agentId, model
+    ORDER BY agentId, model`;
+  const rows = db.prepare(sql).all(params) as Array<RawCounts & Omit<AgentUsageRow, 'counts' | 'messageCount'>>;
+  return rows.map((raw) => ({
+    agentId: raw.agentId,
+    sessionId: raw.sessionId,
+    projectSlug: raw.projectSlug,
+    model: raw.model,
+    messageCount: raw.messageCount,
+    counts: rawToCounts(raw),
+  }));
+}
+
+/**
+ * Récupère les métadonnées des sous-agents. Comme `getSessionsMeta`, seul le filtre de projet
+ * s'applique : la table `agents` n'a pas de colonne `day`, le filtre de période vit
+ * exclusivement dans `agent_rollup`.
+ */
+export function getAgentsMeta(db: Db, filters: UsageFilters = {}): AgentMetaRow[] {
+  if (!hasAgentTables(db)) {
+    return [];
+  }
+  const params: Record<string, string> = {};
+  let clause = '';
+  if (filters.project) {
+    clause = 'WHERE project_slug = @project';
+    params.project = filters.project;
+  }
+  const sql = `
+    SELECT agent_id AS agentId, session_id AS sessionId, project_slug AS projectSlug,
+           agent_type AS agentType, description, parent_agent_id AS parentAgentId,
+           spawn_depth AS spawnDepth, first_ts AS firstTs, last_ts AS lastTs
+    FROM agents
+    ${clause}
+    ORDER BY agentId`;
+  return db.prepare(sql).all(params) as AgentMetaRow[];
 }
 
 /** Indique si la base ne contient encore aucune donnée d'usage. */

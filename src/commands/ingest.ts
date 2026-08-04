@@ -29,6 +29,10 @@ export function runIngest(opts: IngestCommandOptions): void {
     writeOut(`Messages comptés     : ${result.messagesCounted}`);
     writeOut(`  doublons ignorés   : ${result.messagesDuplicate}`);
     writeOut(`  sans id ignorés    : ${result.messagesSkippedNoId}`);
+    writeOut(`Sous-agents indexés  : ${result.agentsIngested}`);
+    if (result.agentsBackfilled) {
+      writeOut('  (passe de rattrapage du grain agent : les coûts déjà comptés sont inchangés)');
+    }
     writeOut(`Durée                : ${result.durationMs} ms`);
   } finally {
     db.close();

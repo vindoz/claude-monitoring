@@ -53,6 +53,12 @@ export function openForRead(opts: CommonOptions): Db | null {
   const db = openDatabase(resolveDbPath(opts));
   const result = ingest(db, resolveProjectsDir(opts), { onProgress: makeProgress(opts.quiet) });
   if (!opts.quiet) {
+    if (result.agentsBackfilled) {
+      writeErr(
+        `Rattrapage du grain agent : ${result.agentsIngested} sous-agent(s) indexé(s) ` +
+          `(passe complète, sans incidence sur les coûts déjà comptés).`,
+      );
+    }
     writeErr(
       `Ingestion : ${result.filesIngested} fichier(s) traité(s) / ${result.filesUnchanged} inchangé(s), ` +
         `${result.messagesCounted} message(s) comptés, ${result.messagesDuplicate} doublon(s) ignorés ` +

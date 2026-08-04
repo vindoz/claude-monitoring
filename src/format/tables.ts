@@ -1,6 +1,6 @@
 import Table from 'cli-table3';
 import pc from 'picocolors';
-import type { DimensionReport, SessionReport } from '../report/aggregate.js';
+import type { AgentReport, DimensionReport, SessionReport } from '../report/aggregate.js';
 import { totalTokens, type UsageCounts } from '../pricing/cost-model.js';
 import { prettyProject } from '../parser/session-path.js';
 import { formatDateTime, formatTokens, formatUsd } from './currency.js';
@@ -83,6 +83,47 @@ export function renderSessionsTable(report: SessionReport): string {
 
   table.push([
     pc.bold(`${report.rows.length} sessions`),
+    '',
+    '',
+    '',
+    '',
+    pc.bold(String(report.total.messageCount)),
+    pc.bold(formatTokens(totalTokens(report.total.counts))),
+    pc.bold(pc.green(formatUsd(report.total.cost))),
+  ]);
+
+  return table.toString();
+}
+
+/**
+ * Rend le tableau des sous-agents : le titre de l'agent, puis le MODÈLE qu'il a utilisé.
+ * L'ordre des colonnes place le modèle juste derrière le titre, là où on le cherche.
+ */
+export function renderAgentsTable(report: AgentReport): string {
+  const table = new Table({
+    head: ['Agent', 'Modèle', 'Type', 'Projet', 'Session', 'Dernière activité', 'Msgs', 'Tokens', 'Coût'].map(
+      (h) => pc.bold(h),
+    ),
+    style: { head: [], border: [] },
+  });
+
+  for (const row of report.rows) {
+    table.push([
+      truncate(row.title, 40),
+      row.models.map(shortModel).join(', ') || '—',
+      truncate(row.meta.agentType ?? '—', 16),
+      truncate(prettyProject(row.meta.projectSlug), 20),
+      row.meta.sessionId.slice(0, 8),
+      formatDateTime(row.meta.lastTs),
+      row.messageCount,
+      formatTokens(totalTokens(row.counts)),
+      pc.green(formatUsd(row.cost)),
+    ]);
+  }
+
+  table.push([
+    pc.bold(`${report.rows.length} agents`),
+    '',
     '',
     '',
     '',

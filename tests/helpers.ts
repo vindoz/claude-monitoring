@@ -66,6 +66,24 @@ export function writeSubagentFile(
   return path;
 }
 
+/**
+ * Écrit le fichier de métadonnées jumeau d'un transcript de sous-agent
+ * (`agent-<id>.meta.json`), tel que Claude Code le produit.
+ */
+export function writeSubagentMeta(
+  projectsDir: string,
+  projectSlug: string,
+  sessionId: string,
+  agentId: string,
+  meta: Record<string, unknown>,
+): string {
+  const dir = join(projectsDir, projectSlug, sessionId, 'subagents');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `agent-${agentId}.meta.json`);
+  writeFileSync(path, JSON.stringify(meta));
+  return path;
+}
+
 /** Capture les écritures sur stdout/stderr pendant l'exécution d'une fonction. */
 export function captureOutput(fn: () => void): { stdout: string; stderr: string } {
   const out: string[] = [];

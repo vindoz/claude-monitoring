@@ -1,4 +1,4 @@
-import type { DimensionReport, SessionReport } from '../report/aggregate.js';
+import type { AgentReportRow, DimensionReport, SessionReport } from '../report/aggregate.js';
 import type { ModelPricing } from '../pricing/default-pricing.js';
 import type { PricingMatch } from '../pricing/pricing-loader.js';
 import { totalTokens } from '../pricing/cost-model.js';
@@ -22,6 +22,8 @@ export interface DashboardData {
   byModel: DimensionReport;
   byDay: DimensionReport;
   sessions: SessionReport;
+  /** Sous-agents de chaque session, dépliables sous sa ligne. */
+  agentsBySession: Map<string, AgentReportRow[]>;
   /** Série temporelle empilée par projet pour le graphique d'évolution. */
   stacked: StackedSeries;
   /** Granularité courante du graphique. */
@@ -101,27 +103,123 @@ function dimensionSection(
   </section>`;
 }
 
-/** Rend la section « sessions ». */
-function sessionsSection(report: SessionReport): string {
+/** Raccourcit un identifiant de modèle pour l'affichage (`claude-opus-5` → `opus-5`). */
+function shortModel(model: string): string {
+  return model.replace(/^claude-/, '');
+}
+
+/**
+ * Ordonne les agents d'une session pour l'affichage : chaque agent parent est immédiatement
+ * suivi des agents qu'il a lancés. Un agent dont le parent n'est pas dans la liste (parent
+ * purgé, ou hors période) est traité comme une racine plutôt que d'être perdu.
+ */
+function orderAgentsByFiliation(agents: AgentReportRow[]): Array<{ row: AgentReportRow; depth: number }> {
+  const present = new Set(agents.map((a) => a.meta.agentId));
+  const childrenOf = new Map<string, AgentReportRow[]>();
+  const roots: AgentReportRow[] = [];
+
+  for (const agent of agents) {
+    const parent = agent.meta.parentAgentId;
+    if (parent && present.has(parent)) {
+      const siblings = childrenOf.get(parent);
+      if (siblings) {
+        siblings.push(agent);
+      } else {
+        childrenOf.set(parent, [agent]);
+      }
+    } else {
+      roots.push(agent);
+    }
+  }
+
+  const ordered: Array<{ row: AgentReportRow; depth: number }> = [];
+  const visit = (row: AgentReportRow, depth: number): void => {
+    ordered.push({ row, depth });
+    for (const child of childrenOf.get(row.meta.agentId) ?? []) {
+      visit(child, depth + 1);
+    }
+  };
+  roots.forEach((root) => visit(root, 0));
+  return ordered;
+}
+
+/**
+ * Rend le sous-tableau des agents d'une session : le TITRE de l'agent, et derrière lui le
+ * MODÈLE qu'il a réellement utilisé.
+ *
+ * La dernière ligne s'appelle « reste » et non « boucle principale » : quand les transcripts
+ * d'agents d'une session ont été purgés par Claude Code, leur coût reste compté dans la session
+ * sans qu'aucun agent ne puisse être listé. L'attribuer à la boucle principale serait inventer
+ * une donnée qu'on ne possède plus.
+ */
+function agentsSubTable(agents: AgentReportRow[], sessionCost: number): string {
+  const rows = orderAgentsByFiliation(agents)
+    .map(({ row, depth }) => {
+      const models = row.models.map(shortModel).join(', ');
+      return `<tr>
+        <td class="key" style="padding-left:${8 + depth * 18}px" title="${escapeHtml(row.title)}">${escapeHtml(row.title)}</td>
+        <td class="model">${escapeHtml(models === '' ? '—' : models)}</td>
+        <td class="mono">${escapeHtml(row.meta.agentType ?? '—')}</td>
+        <td class="num">${row.messageCount}</td>
+        <td class="num">${escapeHtml(formatTokens(totalTokens(row.counts)))}</td>
+        <td class="cost">${escapeHtml(formatUsd(row.cost))}</td>
+      </tr>`;
+    })
+    .join('\n');
+
+  const agentsCost = agents.reduce((sum, a) => sum + a.cost, 0);
+  const rest = Math.max(0, sessionCost - agentsCost);
+
+  return `<table class="sub">
+    <thead><tr><th>Agent</th><th>Modèle</th><th>Type</th><th class="num">Msgs</th><th class="num">Tokens</th><th>Coût</th></tr></thead>
+    <tbody>
+      ${rows}
+      <tr class="rest">
+        <td colspan="5">reste (boucle principale + agents non reconstructibles)</td>
+        <td class="cost">${escapeHtml(formatUsd(rest))}</td>
+      </tr>
+    </tbody>
+  </table>`;
+}
+
+/** Rend la section « sessions », chaque ligne dépliant ses sous-agents. */
+function sessionsSection(report: SessionReport, agentsBySession: Map<string, AgentReportRow[]>): string {
   const rows = report.rows
-    .map(
-      (row) => `<tr>
+    .map((row) => {
+      const agents = agentsBySession.get(row.meta.sessionId) ?? [];
+      const toggleId = `ag-${escapeHtml(row.meta.sessionId)}`;
+      // Sans agent, pas de chevron : une ligne qui ne déplie rien ne doit pas sembler cliquable.
+      const toggle =
+        agents.length === 0
+          ? '<td class="toggle"></td>'
+          : `<td class="toggle"><label for="${toggleId}"><input type="checkbox" id="${toggleId}" /><span class="chev"></span></label></td>`;
+
+      const main = `<tr class="sess">
+      ${toggle}
       <td class="mono">${escapeHtml(row.meta.sessionId.slice(0, 8))}</td>
       <td>${escapeHtml(prettyProject(row.meta.projectSlug, row.meta.cwd))}</td>
       <td>${escapeHtml(row.meta.title ?? '—')}</td>
       <td class="mono">${escapeHtml(formatDateTime(row.meta.lastTs))}</td>
-      <td>${escapeHtml(row.models.map((m) => m.replace(/^claude-/, '')).join(', '))}</td>
+      <td>${escapeHtml(row.models.map(shortModel).join(', '))}</td>
+      <td class="num">${agents.length === 0 ? '—' : agents.length}</td>
       <td class="num">${row.messageCount}</td>
       <td class="num">${escapeHtml(formatTokens(totalTokens(row.counts)))}</td>
       <td class="cost"><strong>${escapeHtml(formatUsd(row.cost))}</strong></td>
-    </tr>`,
-    )
+    </tr>`;
+
+      if (agents.length === 0) {
+        return main;
+      }
+      return `${main}
+    <tr class="kids"><td colspan="10">${agentsSubTable(agents, row.cost)}</td></tr>`;
+    })
     .join('\n');
+
   return `<section class="card wide">
-    <h2>Sessions récentes</h2>
+    <h2>Sessions récentes <span class="sub">cliquez une ligne pour voir ses agents</span></h2>
     <div class="tablewrap">
     <table>
-      <thead><tr><th>Session</th><th>Projet</th><th>Titre</th><th>Dernière activité</th><th>Modèles</th><th class="num">Msgs</th><th class="num">Tokens</th><th>Coût</th></tr></thead>
+      <thead><tr><th></th><th>Session</th><th>Projet</th><th>Titre</th><th>Dernière activité</th><th>Modèles</th><th class="num">Agents</th><th class="num">Msgs</th><th class="num">Tokens</th><th>Coût</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     </div>
@@ -146,7 +244,7 @@ function pricingSection(rows: PricingRow[]): string {
       const p = row.pricing;
       const badge = row.match === 'exact' ? '' : ` <span class="badge${row.match === 'unknown' ? ' bad' : ''}">${escapeHtml(MATCH_LABELS[row.match])}</span>`;
       return `<tr>
-        <td class="key" title="${escapeHtml(row.model)}">${escapeHtml(row.model.replace(/^claude-/, ''))}${badge}</td>
+        <td class="key" title="${escapeHtml(row.model)}">${escapeHtml(shortModel(row.model))}${badge}</td>
         <td class="num">${escapeHtml(formatUsd(p.input))}</td>
         <td class="num">${escapeHtml(formatUsd(p.cacheWrite5m))}</td>
         <td class="num">${escapeHtml(formatUsd(p.cacheWrite1h))}</td>
@@ -286,6 +384,23 @@ export function renderDashboard(data: DashboardData): string {
     .key { overflow-wrap: anywhere; }
     .mono { font-family: ui-monospace, monospace; color: var(--muted); }
     tr.total td { font-weight: 700; border-top: 2px solid var(--border-strong); border-bottom: 0; position: sticky; bottom: 0; background: var(--surface); }
+    /* Dépliage des sous-agents sous leur session : 100 % CSS, aucune dépendance ni script.
+       La case à cocher reste dans le flux (focusable au clavier) mais invisible ; c'est le
+       label qui rend toute la cellule cliquable. */
+    td.toggle { width: 1.8em; padding-right: 0; }
+    td.toggle label { display: block; cursor: pointer; color: var(--muted); user-select: none; }
+    td.toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    td.toggle .chev::before { content: '▸'; }
+    tr.sess:has(input:checked) td.toggle .chev::before { content: '▾'; }
+    td.toggle input:focus-visible + .chev { outline: 2px solid var(--accent); border-radius: 3px; }
+    tr.kids { display: none; }
+    tr.sess:has(input:checked) + tr.kids { display: table-row; }
+    tr.kids > td { padding: 4px 12px 14px 30px; background: color-mix(in srgb, var(--bg) 55%, transparent); }
+    table.sub { width: 100%; border-collapse: collapse; font-size: .93em; }
+    table.sub th { position: static; background: transparent; font-size: 10px; padding: 4px 8px; }
+    table.sub td { padding: 5px 8px; border-bottom: 1px dashed var(--border); }
+    table.sub td.model { color: var(--accent); white-space: nowrap; }
+    table.sub tr.rest td { color: var(--muted); font-style: italic; border-bottom: 0; }
     .bar { display: inline-block; width: clamp(80px, 6vw, 160px); height: 6px; background: var(--border); border-radius: 3px; margin-right: 8px; vertical-align: middle; overflow: hidden; }
     .bar span { display: block; height: 100%; background: var(--accent); }
     .warn { grid-column: 1 / -1; padding: 10px 14px; background: #3a2d00; border: 1px solid #9e7b00; border-radius: 8px; color: #f2cc60; }
@@ -330,10 +445,10 @@ export function renderDashboard(data: DashboardData): string {
     ${controlsForm(data)}
     ${chartSection(data)}
     ${dimensionSection('Coûts par projet', 'Projet', data.byProject, projectLabel)}
-    ${dimensionSection('Coûts par modèle', 'Modèle', data.byModel, (m) => m.replace(/^claude-/, ''))}
+    ${dimensionSection('Coûts par modèle', 'Modèle', data.byModel, shortModel)}
     ${dimensionSection('Coûts par jour', 'Jour', data.byDay)}
     ${pricingSection(data.pricingRows)}
-    ${sessionsSection(data.sessions)}
+    ${sessionsSection(data.sessions, data.agentsBySession)}
   </main>
   <footer>Rafraîchissez la page pour recharger les données (ré-ingestion incrémentale).</footer>
 </body>

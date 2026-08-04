@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeContext, formatStatusline } from '../src/commands/statusline.js';
+import { computeContext, formatAgents, formatStatusline } from '../src/commands/statusline.js';
 import type { StatuslineInput } from '../src/types/claude-events.js';
 
 describe('computeContext', () => {
@@ -43,9 +43,40 @@ describe('formatStatusline', () => {
   });
 
   it('affiche le coût complet override au lieu du chiffre natif', () => {
-    const line = formatStatusline(nominal, { noColor: true }, 147.34);
+    const line = formatStatusline(nominal, { noColor: true }, {
+      cost: 147.34,
+      agentCount: 0,
+      agentsByModel: [],
+    });
     expect(line).toContain('$147.34');
     expect(line).not.toContain('$0.12');
+  });
+
+  it('affiche les sous-agents et leur modèle', () => {
+    const line = formatStatusline(nominal, { noColor: true }, {
+      cost: 10,
+      agentCount: 3,
+      agentsByModel: [
+        { model: 'claude-opus-5', count: 2 },
+        { model: 'claude-haiku-4-5-20251001', count: 1 },
+      ],
+    });
+    expect(line).toContain('3 agents 2×opus-5 1×haiku-4-5-20251001');
+  });
+
+  it('n’allonge pas la ligne quand la session n’a aucun agent', () => {
+    const line = formatStatusline(nominal, { noColor: true }, {
+      cost: 10,
+      agentCount: 0,
+      agentsByModel: [],
+    });
+    expect(line).not.toContain('agent');
+  });
+
+  it('accorde le singulier', () => {
+    expect(
+      formatAgents({ cost: 0, agentCount: 1, agentsByModel: [{ model: 'claude-opus-5', count: 1 }] }),
+    ).toBe('1 agent 1×opus-5');
   });
 
   it('tolère les champs nuls', () => {

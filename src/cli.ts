@@ -62,6 +62,37 @@ program
   });
 
 program
+  .command('agents')
+  .description('Liste les sous-agents, le modèle qu’ils ont utilisé et leur coût')
+  .option('--project <slug>', 'filtre par slug de projet')
+  .option('--session <id>', 'filtre par session (identifiant complet ou préfixe)')
+  .option('--since <date>', 'jour minimum inclus (YYYY-MM-DD)')
+  .option('--until <date>', 'jour maximum inclus (YYYY-MM-DD)')
+  .option('--limit <n>', 'nombre maximum d’agents affichés', toInt, 50)
+  .option('--json', 'sortie au format JSON')
+  .option('--no-ingest', 'ne pas (ré)ingérer avant affichage')
+  .option('--db <path>', 'chemin de la base SQLite')
+  .option('--projects-dir <path>', 'répertoire des transcripts Claude Code')
+  .option('--pricing <path>', 'fichier de pricing override')
+  .option('-q, --quiet', "masque le bilan d'ingestion")
+  .action(async (opts) => {
+    const { runAgents } = await import('./commands/agents.js');
+    runAgents({
+      project: opts.project,
+      session: opts.session,
+      since: opts.since,
+      until: opts.until,
+      limit: opts.limit,
+      json: opts.json,
+      noIngest: opts.ingest === false,
+      db: opts.db,
+      projectsDir: opts.projectsDir,
+      pricing: opts.pricing,
+      quiet: opts.quiet,
+    });
+  });
+
+program
   .command('summary')
   .description('Agrège les coûts par projet, session, modèle ou jour')
   .requiredOption('--by <dimension>', 'project | session | model | day')

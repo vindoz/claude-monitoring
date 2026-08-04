@@ -57,6 +57,27 @@ export interface AssistantEvent {
   gitBranch?: string;
 }
 
+/**
+ * Contenu du fichier `agent-<id>.meta.json` écrit par Claude Code à côté du transcript d'un
+ * sous-agent. C'est la seule source du **titre** et du **type** de l'agent : le transcript
+ * lui-même ne les porte pas.
+ *
+ * Le champ `model` y est parfois présent mais vaut un ALIAS (`"opus"`), pas un identifiant
+ * tarifable : le modèle réellement facturé se lit dans `message.model` du transcript.
+ */
+export interface AgentMeta {
+  /** Type d'agent (`plan-code`, `explore-code`, `general-purpose`, `Explore`…). */
+  agentType?: string;
+  /** Description donnée au lancement — c'est le titre affiché par Claude Code. */
+  description?: string;
+  /** Agent parent, présent uniquement pour les agents lancés par un autre agent. */
+  parentAgentId?: string;
+  /** Profondeur de lancement (1 = lancé par la boucle principale). */
+  spawnDepth?: number;
+  /** Identifiant de l'appel d'outil `Task` qui a lancé l'agent. */
+  toolUseId?: string;
+}
+
 /** Event « ai-title » : titre humain attribué à la session. */
 export interface AiTitleEvent {
   type: 'ai-title';

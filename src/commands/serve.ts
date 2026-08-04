@@ -2,15 +2,20 @@ import { createServer } from 'node:http';
 import { openDatabase, type Db } from '../db/database.js';
 import { ingest } from '../db/ingest.js';
 import {
+  getAgentsMeta,
+  getAgentUsage,
   getSessionsMeta,
   getUsageByDayAndProject,
   getUsageByDimension,
   type UsageFilters,
 } from '../db/queries.js';
 import {
+  aggregateAgents,
   aggregateDayProject,
   aggregateDimension,
   aggregateSessions,
+  agentsInPeriod,
+  groupAgentsBySession,
   type DimensionReport,
 } from '../report/aggregate.js';
 import { renderDashboard, type DashboardData } from '../web/render-html.js';
@@ -72,6 +77,15 @@ export function buildDashboardData(
   );
   const sessions = { ...sessionsFull, rows: sessionsFull.rows.slice(0, params.sessionsLimit) };
 
+  // Les agents sont filtrés par la même période que l'usage, via `agent_rollup.day`.
+  const agentUsage = getAgentUsage(db, filters);
+  const agentMetas = agentsInPeriod(
+    getAgentsMeta(db),
+    agentUsage,
+    params.since !== undefined || params.until !== undefined,
+  );
+  const agentsBySession = groupAgentsBySession(aggregateAgents(agentUsage, agentMetas, resolver));
+
   const unknownModels = [...new Set([...byProject.unknownModels, ...byModel.unknownModels])];
 
   // Grille tarifaire effective : tarif résolu pour chaque modèle rencontré sur la période,
@@ -87,6 +101,7 @@ export function buildDashboardData(
     byModel,
     byDay,
     sessions,
+    agentsBySession,
     stacked,
     granularity: params.granularity,
     since: params.since,

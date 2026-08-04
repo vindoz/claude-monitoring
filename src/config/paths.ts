@@ -21,6 +21,14 @@ export function databasePath(): string {
   return process.env.CCMON_DB ?? join(claudeHome(), 'claude-monitoring.db');
 }
 
+/**
+ * Cache d'agrégation par fichier utilisé par le statusline (hot path appelé ~toutes les
+ * 300 ms). Sans lui, chaque affichage reparse l'intégralité des transcripts de la session.
+ */
+export function statuslineCachePath(): string {
+  return process.env.CCMON_STATUSLINE_CACHE ?? join(claudeHome(), 'claude-monitoring.statusline-cache.json');
+}
+
 /** Chemin du fichier `settings.json` de Claude Code. */
 export function settingsPath(): string {
   return join(claudeHome(), 'settings.json');

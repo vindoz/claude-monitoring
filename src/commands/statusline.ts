@@ -3,9 +3,9 @@ import type { StatuslineInput } from '../types/claude-events.js';
 import { formatTokens, formatUsd } from '../format/currency.js';
 import { progressBar } from '../format/tables.js';
 import { writeOut } from '../format/output.js';
-import { computeSessionCost } from '../statusline/session-cost.js';
+import { computeSessionUsage, type SessionUsage } from '../statusline/session-cost.js';
 import { buildResolver } from '../pricing/pricing-loader.js';
-import { projectsDir } from '../config/paths.js';
+import { projectsDir, statuslineCachePath } from '../config/paths.js';
 
 /** Options de la commande `statusline`. */
 export interface StatuslineOptions {
@@ -54,23 +54,46 @@ function sumCurrentUsage(input: StatuslineInput): number | null {
   );
 }
 
+/** Raccourcit un identifiant de modèle pour l'affichage (`claude-opus-5` → `opus-5`). */
+function shortModel(model: string): string {
+  return model.replace(/^claude-/, '');
+}
+
+/**
+ * Résume les sous-agents de la session : leur nombre, puis leur répartition par modèle.
+ * Chaîne vide s'il n'y a aucun agent — la statusline ne doit pas s'allonger pour rien.
+ *
+ * La statusline n'a pas la place d'afficher les TITRES des agents : c'est le rôle du tableau de
+ * bord et de `ccmon agents`, qui montrent le modèle derrière le titre de chacun.
+ */
+export function formatAgents(usage: SessionUsage | null): string {
+  if (!usage || usage.agentCount === 0) {
+    return '';
+  }
+  const noun = usage.agentCount === 1 ? 'agent' : 'agents';
+  const breakdown = usage.agentsByModel
+    .map(({ model, count }) => `${count}×${shortModel(model)}`)
+    .join(' ');
+  return breakdown === '' ? `${usage.agentCount} ${noun}` : `${usage.agentCount} ${noun} ${breakdown}`;
+}
+
 /**
  * Construit la ligne de statusline à afficher.
  * Tolère tout champ manquant ou `null` (affiché « — »).
  *
- * @param sessionCostOverride coût complet calculé par ccmon (cache + sous-agents inclus).
- *        Quand fourni, il remplace le `cost.total_cost_usd` natif de Claude Code (qui sous-compte).
+ * @param sessionUsage consommation complète calculée par ccmon (cache + sous-agents inclus).
+ *        Son coût remplace le `cost.total_cost_usd` natif de Claude Code (qui sous-compte).
  */
 export function formatStatusline(
   input: StatuslineInput,
   opts: StatuslineOptions = {},
-  sessionCostOverride?: number | null,
+  sessionUsage?: SessionUsage | null,
 ): string {
   const useColor = !opts.noColor && !process.env.NO_COLOR;
   const c = createColors(useColor);
 
   const model = input.model?.display_name ?? input.model?.id ?? '—';
-  const cost = sessionCostOverride ?? input.cost?.total_cost_usd;
+  const cost = sessionUsage?.cost ?? input.cost?.total_cost_usd;
   const costText = cost == null ? '—' : formatUsd(cost);
 
   const ctx = computeContext(input);
@@ -83,11 +106,12 @@ export function formatStatusline(
     return `${c.green(costText)} ${coloredBar} ${pctText}`;
   }
 
-  return [
-    c.bold(model),
-    c.green(costText),
-    `${coloredBar} ${pctText}${tokensText}`,
-  ].join(' · ');
+  const segments = [c.bold(model), c.green(costText), `${coloredBar} ${pctText}${tokensText}`];
+  const agents = formatAgents(sessionUsage ?? null);
+  if (agents !== '') {
+    segments.push(c.cyan(agents));
+  }
+  return segments.join(' · ');
 }
 
 /** Choisit une couleur de barre selon le taux d'occupation. */
@@ -123,17 +147,18 @@ export function readStdin(): Promise<string> {
 }
 
 /**
- * Calcule le coût complet de la session (cache + sous-agents inclus) ; renvoie `null` en cas
- * d'échec pour retomber sur le chiffre natif de Claude Code.
+ * Calcule la consommation complète de la session (cache + sous-agents inclus) ; renvoie `null`
+ * en cas d'échec pour retomber sur le chiffre natif de Claude Code.
  */
-function fullSessionCost(input: StatuslineInput): number | null {
+function fullSessionUsage(input: StatuslineInput): SessionUsage | null {
   try {
-    return computeSessionCost({
+    return computeSessionUsage({
       transcriptPath: input.transcript_path,
       sessionId: input.session_id,
       cwd: input.cwd ?? input.workspace?.current_dir,
       projectsDir: projectsDir(),
       resolver: buildResolver(),
+      cachePath: statuslineCachePath(),
     });
   } catch {
     return null;
@@ -152,5 +177,5 @@ export async function runStatusline(opts: StatuslineOptions): Promise<void> {
       input = {};
     }
   }
-  writeOut(formatStatusline(input, opts, fullSessionCost(input)));
+  writeOut(formatStatusline(input, opts, fullSessionUsage(input)));
 }
