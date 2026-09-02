@@ -32,6 +32,44 @@ describe('createResolver', () => {
     expect(r.pricing.cacheRead).toBe(1);
   });
 
+  it('applique le tarif Fable 5.1 : mêmes prix de base, lecture de cache au quart', () => {
+    const r = resolver.resolve('claude-fable-5-1');
+    expect(r.match).toBe('exact');
+    expect(r.pricing.input).toBe(10);
+    expect(r.pricing.output).toBe(50);
+    expect(r.pricing.cacheWrite5m).toBe(12.5);
+    expect(r.pricing.cacheWrite1h).toBe(20);
+    // Seul modèle de la grille dont la lecture vaut 0,025 × input au lieu de 0,1 × input.
+    expect(r.pricing.cacheRead).toBe(0.25);
+  });
+
+  it('tarife Opus 5 et Sonnet 5 par correspondance exacte, pas par repli de famille', () => {
+    const opus5 = resolver.resolve('claude-opus-5');
+    expect(opus5.match).toBe('exact');
+    expect(opus5.pricing.input).toBe(5);
+    expect(opus5.pricing.output).toBe(25);
+    expect(opus5.pricing.cacheRead).toBe(0.5);
+
+    const sonnet5 = resolver.resolve('claude-sonnet-5');
+    expect(sonnet5.match).toBe('exact');
+    expect(sonnet5.pricing.input).toBe(2);
+    expect(sonnet5.pricing.output).toBe(10);
+    expect(sonnet5.pricing.cacheRead).toBe(0.2);
+  });
+
+  it('laisse les Sonnet 4.x au tarif de leur génération', () => {
+    const r = resolver.resolve('claude-sonnet-4-6');
+    expect(r.match).toBe('exact');
+    expect(r.pricing.input).toBe(3);
+    expect(r.pricing.output).toBe(15);
+  });
+
+  it('replie un alias de famille sur la génération courante', () => {
+    const r = resolver.resolve('sonnet');
+    expect(r.match).toBe('family');
+    expect(r.pricing.input).toBe(2);
+  });
+
   it('applique le tarif historique aux anciens Opus 4 / 4.1', () => {
     expect(resolver.resolve('claude-opus-4-1-20250805').pricing.input).toBe(15);
     expect(resolver.resolve('claude-opus-4-20250514').pricing.input).toBe(15);

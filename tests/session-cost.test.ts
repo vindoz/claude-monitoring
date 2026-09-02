@@ -28,14 +28,16 @@ describe('computeSessionCost', () => {
     expect(r).toBeCloseTo(5, 3); // 1M input opus une seule fois
   });
 
-  it('applique le tarif par modèle (opus + fable-5)', () => {
+  it('applique le tarif par modèle (opus + fable-5 + fable-5.1)', () => {
     const projectsDir = makeTempDir();
     const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
       assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', usage: { output_tokens: 1_000_000 } }), // 25 $
       assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-fable-5', usage: { output_tokens: 1_000_000 } }), // 50 $ (2× Opus)
+      // Fable 5.1 : 1 M de lecture de cache à 0,25 $, contre 1 $ sur Fable 5.
+      assistantEvent({ id: 'm3', requestId: 'r3', model: 'claude-fable-5-1', usage: { cache_read_input_tokens: 1_000_000 } }), // 0,25 $
     ]);
     const r = computeSessionCost({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
-    expect(r).toBeCloseTo(75, 3);
+    expect(r).toBeCloseTo(75.25, 3);
   });
 
   it('reconstruit le chemin depuis cwd + sessionId si transcript_path est absent', () => {

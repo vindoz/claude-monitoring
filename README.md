@@ -165,27 +165,34 @@ dashboard s'il ne tourne pas déjà et l'ouvre dans le navigateur.
 ## Tarification
 
 Les coûts sont calculés à partir des tokens (`usage`) et d'une grille tarifaire par défaut
-(USD par million de tokens, tarifs publics Anthropic relevés le 2026-06-11) :
+(USD par million de tokens, tarifs publics Anthropic relevés le 2026-09-02) :
 
-| Modèle              | input | output | cache write 5 min | cache read |
-|---------------------|-------|--------|-------------------|------------|
-| Opus 4.5 → 4.8      | 5     | 25     | 6,25              | 0,50       |
-| Opus 4 / 4.1 (anciens) | 15 | 75     | 18,75             | 1,50       |
-| Sonnet              | 3     | 15     | 3,75              | 0,30       |
-| Haiku               | 1     | 5      | 1,25              | 0,10       |
-| Fable 5             | 10    | 50     | 12,50             | 1,00       |
+| Modèle                 | input | output | cache write 5 min | cache write 1 h | cache read |
+|------------------------|-------|--------|-------------------|-----------------|------------|
+| Fable 5.1              | 10    | 50     | 12,50             | 20              | **0,25**   |
+| Fable 5                | 10    | 50     | 12,50             | 20              | 1,00       |
+| Opus 4.5 → 5           | 5     | 25     | 6,25              | 10              | 0,50       |
+| Opus 4 / 4.1 (anciens) | 15    | 75     | 18,75             | 30              | 1,50       |
+| Sonnet 5               | 2     | 10     | 2,50              | 4               | 0,20       |
+| Sonnet 4.5 / 4.6       | 3     | 15     | 3,75              | 6               | 0,30       |
+| Haiku 4.5              | 1     | 5      | 1,25              | 2               | 0,10       |
+
+La lecture de cache vaut partout 0,1 × le tarif d'entrée, **sauf sur Fable 5.1** où elle tombe
+à 0,025 × — soit 0,25 $ au lieu de 1 $. C'est le seul écart à la règle, et il ne vaut que pour
+ce modèle : un identifiant Fable sans entrée exacte reste tarifé au barème de Fable 5.
+
+Un modèle absent de la grille est tarifé au barème de la **génération courante de sa famille**
+(`opus`, `sonnet`, `haiku`, `fable`). Un modèle dont la famille elle-même est inconnue est
+compté à 0 et **signalé** : la commande `summary` renvoie alors un code de sortie non nul.
 
 Pour surcharger ou compléter ces tarifs, créez un fichier JSON et pointez `CCMON_PRICING`
 dessus :
 
 ```json
 {
-  "claude-fable-5": { "input": 10, "output": 50, "cacheWrite5m": 12.5, "cacheWrite1h": 20, "cacheRead": 1 }
+  "claude-fable-5-1": { "input": 10, "output": 50, "cacheWrite5m": 12.5, "cacheWrite1h": 20, "cacheRead": 0.25 }
 }
 ```
-
-Un modèle non reconnu est compté à 0 et **signalé** (la commande `summary` renvoie alors un
-code de sortie non nul).
 
 ## Variables d'environnement
 

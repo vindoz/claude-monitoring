@@ -12,6 +12,8 @@ describe('normalizeModelId', () => {
 
   it('laisse intact un id sans suffixe de date', () => {
     expect(normalizeModelId('claude-opus-4-8')).toBe('claude-opus-4-8');
+    // Le `-1` de Fable 5.1 n'est pas une date : il ne doit pas être rogné.
+    expect(normalizeModelId('claude-fable-5-1')).toBe('claude-fable-5-1');
   });
 });
 
@@ -21,6 +23,7 @@ describe('modelFamily', () => {
     expect(modelFamily('claude-sonnet-4-6')).toBe('sonnet');
     expect(modelFamily('claude-haiku-4-5')).toBe('haiku');
     expect(modelFamily('claude-fable-5')).toBe('fable');
+    expect(modelFamily('claude-fable-5-1')).toBe('fable');
   });
 
   it('reconnaît les alias nus', () => {
