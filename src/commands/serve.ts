@@ -5,6 +5,9 @@ import {
   getAgentsMeta,
   getAgentUsage,
   getSessionsMeta,
+  getSkillEdges,
+  getSkillUsage,
+  getToolUsage,
   getUsageByDayAndProject,
   getUsageByDimension,
   type UsageFilters,
@@ -14,6 +17,8 @@ import {
   aggregateDayProject,
   aggregateDimension,
   aggregateSessions,
+  aggregateSkills,
+  aggregateTools,
   agentsInPeriod,
   groupAgentsBySession,
   type DimensionReport,
@@ -43,6 +48,12 @@ function topByKeyDesc(report: DimensionReport, limit: number): DimensionReport {
   const rows = [...report.rows].sort((a, b) => (a.key < b.key ? 1 : -1)).slice(0, limit);
   return { rows, total: report.total, unknownModels: report.unknownModels };
 }
+
+/** Nombre de lignes de skills affichées (le total, lui, reste celui de la période entière). */
+const DASHBOARD_SKILLS_LIMIT = 25;
+
+/** Nombre de lignes d'outils affichées. */
+const DASHBOARD_TOOLS_LIMIT = 25;
 
 /** Paramètres de construction du tableau de bord. */
 export interface DashboardParams {
@@ -86,6 +97,12 @@ export function buildDashboardData(
   );
   const agentsBySession = groupAgentsBySession(aggregateAgents(agentUsage, agentMetas, resolver));
 
+  // Grains skill et outil : mêmes bornes de période que le reste du tableau de bord.
+  const skillsFull = aggregateSkills(getSkillUsage(db, filters), getSkillEdges(db, filters), resolver);
+  const skills = { ...skillsFull, rows: skillsFull.rows.slice(0, DASHBOARD_SKILLS_LIMIT) };
+  const toolsFull = aggregateTools(getToolUsage(db, filters));
+  const tools = { ...toolsFull, rows: toolsFull.rows.slice(0, DASHBOARD_TOOLS_LIMIT) };
+
   const unknownModels = [...new Set([...byProject.unknownModels, ...byModel.unknownModels])];
 
   // Grille tarifaire effective : tarif résolu pour chaque modèle rencontré sur la période,
@@ -102,6 +119,8 @@ export function buildDashboardData(
     byDay,
     sessions,
     agentsBySession,
+    skills,
+    tools,
     stacked,
     granularity: params.granularity,
     since: params.since,

@@ -13,16 +13,21 @@ qu'un script de statusline.
    leur modèle, leurs tokens et leur **coût** calculé.
 2. **Lister les sous-agents** (`ccmon agents`) — chaque agent lancé, **le modèle qu'il a
    utilisé**, son type, sa session et son coût.
-3. **Résumer les coûts** (`ccmon summary --by …`) — agrégation par **projet**, **session**,
+3. **Coût par skill et par pipeline** (`ccmon skills`) — ce que chaque skill a réellement
+   coûté, et le **pipeline** (racine de la chaîne d'invocation) dont il relève.
+4. **Appels d'outils et serveurs MCP** (`ccmon tools`) — nombre d'appels, erreurs et
+   **contexte injecté** par outil, par serveur MCP et par skill.
+5. **Résumer les coûts** (`ccmon summary --by …`) — agrégation par **projet**, **session**,
    **modèle** ou **jour**.
-4. **Coût de la session en cours** dans le statusline de Claude Code, avec le **nombre de
-   sous-agents et leur modèle**.
-5. **Occupation du contexte en temps réel** dans le statusline.
-6. **Tableau de bord web** (`ccmon serve`) — page navigateur avec graphique d'évolution des
+6. **Coût de la session en cours** dans le statusline de Claude Code, avec le **skill en cours
+   et son coût**, ainsi que le **nombre de sous-agents et leur modèle**.
+7. **Occupation du contexte en temps réel** dans le statusline.
+8. **Tableau de bord web** (`ccmon serve`) — page navigateur avec graphique d'évolution des
    coûts **empilé par projet** (quotidien/hebdomadaire, une couleur par projet + légende),
-   sélecteur de période, tableaux par projet/modèle/jour, et **sessions dépliables révélant
-   leurs agents** (titre, modèle, type, coût).
-7. **Auto-démarrage** (`ccmon install --autostart`) — ouvre le dashboard à l'ouverture d'une
+   sélecteur de période, tableaux par projet/modèle/jour, cartes **« Coûts par skill »** et
+   **« Outils & serveurs MCP »**, et **sessions dépliables révélant leurs agents** (titre,
+   modèle, type, coût).
+9. **Auto-démarrage** (`ccmon install --autostart`) — ouvre le dashboard à l'ouverture d'une
    session Claude Code.
 
 Les coûts des **sous-agents** (transcripts `subagents/**`) sont inclus dans le coût de leur
@@ -106,6 +111,17 @@ ccmon sessions --project -home-user-projets-demo --json
 ccmon agents --limit 20
 ccmon agents --session 8725c3a0            # préfixe de session accepté
 ccmon agents --since 2026-08-01 --json
+
+# Coût par skill, et pipeline dont chaque skill relève
+ccmon skills
+ccmon skills --pipeline epct-sexy --since 2026-09-01
+ccmon skills --json
+
+# Appels d'outils et contexte injecté (serveurs MCP inclus)
+ccmon tools
+ccmon tools --mcp                 # seulement les outils MCP
+ccmon tools --server jira         # un serveur donné (le préfixe `mcp:` est optionnel)
+ccmon tools --skill epct          # les appels passés sous un skill
 
 # Résumer les coûts
 ccmon summary --by project
@@ -226,8 +242,8 @@ npm run test:coverage
 - `format/` : rendu terminal (tableaux, barre de contexte, montants).
 - `statusline/` : calcul du coût de la session courante et cache d'agrégation incrémental.
 - `web/` : rendu HTML du tableau de bord et série temporelle (graphique SVG).
-- `commands/` : sous-commandes `ingest`, `sessions`, `agents`, `summary`, `statusline`, `serve`,
-  `install`.
+- `commands/` : sous-commandes `ingest`, `sessions`, `agents`, `skills`, `tools`, `summary`,
+  `statusline`, `serve`, `install`.
 
 ### Grain agent
 
@@ -238,6 +254,46 @@ historique définitivement. Le rollup d'un agent est recalculé intégralement �
 son transcript, ce qui le rend indépendant de la déduplication globale et donc rattrapable :
 à la première exécution suivant la mise à jour, une passe complète indexe les agents déjà
 ingérés, sans toucher aux coûts déjà comptés.
+### Grain skill et grain outil
+
+Même principe que le grain agent : trois tables ajoutées **à côté** de l'existant.
+
+| Table | Contenu |
+|---|---|
+| `skill_rollup` | tokens **facturés** ventilés par skill actif |
+| `skill_edges` | filiation `appelant → appelé`, d'où le **pipeline** (racine de la chaîne) |
+| `tool_rollup` | appels, erreurs et **contexte injecté** par outil, serveur et skill |
+
+L'attribution par skill est **exacte, pas estimée** : Claude Code écrit lui-même un champ
+`attributionSkill` sur chaque message assistant, y compris dans les transcripts de sous-agents.
+Les messages produits hors de tout skill sont imputés à la clé `(hors skill)` — une clé plutôt
+qu'un `NULL`, pour que le grain skill totalise **exactement** le grain session.
+
+Le grain skill possède sa **propre table de déduplication** (`seen_skill_messages`). S'adosser à
+`seen_messages` aurait rendu le rattrapage inerte : cette table est déjà peuplée sur tout
+l'historique, et la passe forcée n'aurait donc rien écrit.
+
+Le grain outil, lui, se relève sur **toutes** les lignes du transcript : un message logique est
+réparti à raison d'un bloc de contenu par ligne, et les `tool_use` vivent précisément sur les
+lignes que la déduplication `(message.id, requestId)` rejette. Chaque appel est marqué dans
+`seen_tool_calls`, qui n'est **jamais purgée** : un transcript d'agent est relu depuis la ligne 0
+à chaque passage, et `ccmon ingest --force` relit tout — supprimer le marqueur après usage
+referait monter les compteurs à chaque exécution.
+
+#### Ce que ces grains ne savent pas
+
+- **L'historique purgé n'est pas rejouable.** Les totaux de `ccmon skills` sont donc
+  **inférieurs** à ceux de `ccmon summary` : les sessions dont Claude Code a supprimé le
+  transcript gardent leur coût agrégé, mais aucune ventilation par skill.
+- **Un skill est rattaché à son premier parent dans la session.** Si `/epct` est lancé deux fois
+  dans une même session, une fois seul et une fois par `/kran`, le grain
+  `(session, skill, modèle, jour)` ne sait pas les distinguer.
+- **Le « contexte injecté » n'est pas un coût facturé.** Un appel d'outil ne se facture pas :
+  c'est son résultat qui entre dans le contexte, et que paient les requêtes suivantes — d'autant
+  plus longtemps que la session dure. Le chiffre affiché est une **estimation** (≈ 4 caractères
+  par token) dérivée d'un nombre de caractères mesuré ; les images en sont exclues, leur base64
+  n'ayant aucun rapport avec leur poids réel.
+
 - `scripts/` : `statusline.sh` (relai stdin → `ccmon statusline`) et `session-start.sh`
   (hook d'auto-démarrage du dashboard).
 

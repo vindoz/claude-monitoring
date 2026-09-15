@@ -7,6 +7,8 @@ import { createResolver, loadPricingTable } from '../src/pricing/pricing-loader.
 import {
   assistantEvent,
   makeTempDir,
+  toolResultEvent,
+  toolUseLine,
   writeSessionFile,
   writeSubagentFile,
   writeSubagentMeta,
@@ -186,5 +188,120 @@ describe('agents dans le tableau de bord', () => {
   it('nomme le solde « reste », jamais « boucle principale » seule', () => {
     const html = renderDashboard(buildWithAgents());
     expect(html).toContain('reste (boucle principale + agents non reconstructibles)');
+  });
+});
+
+describe('skills et outils dans le tableau de bord', () => {
+  function buildFromFixture() {
+    const projectsDir = makeTempDir();
+    writeSessionFile(projectsDir, '-proj', 'sess1', [
+      assistantEvent({
+        id: 'm1',
+        requestId: 'r1',
+        model: 'claude-opus-4-8',
+        timestamp: '2026-06-01T10:00:00Z',
+        usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        attributionSkill: 'epct-sexy',
+      }),
+      toolUseLine({
+        id: 'm1',
+        requestId: 'r1',
+        model: 'claude-opus-4-8',
+        timestamp: '2026-06-01T10:00:00Z',
+        usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        attributionSkill: 'epct-sexy',
+        toolUseId: 'toolu_s',
+        toolName: 'Skill',
+        input: { skill: 'epct' },
+      }),
+      assistantEvent({
+        id: 'm2',
+        requestId: 'r2',
+        model: 'claude-opus-4-8',
+        timestamp: '2026-06-01T10:01:00Z',
+        usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        attributionSkill: 'epct',
+      }),
+      toolUseLine({
+        id: 'm2',
+        requestId: 'r2',
+        model: 'claude-opus-4-8',
+        timestamp: '2026-06-01T10:01:00Z',
+        usage: { input_tokens: 1_000_000, output_tokens: 0 },
+        attributionSkill: 'epct',
+        toolUseId: 'toolu_j',
+        toolName: 'mcp__jira__jira_get_issue',
+      }),
+      toolResultEvent({ toolUseId: 'toolu_j', content: 'z'.repeat(4000), timestamp: '2026-06-01T10:01:01Z' }),
+    ]);
+    const db = openDatabase(':memory:');
+    ingest(db, projectsDir);
+    const data = buildDashboardData(db, resolver, {
+      sessionsLimit: 30,
+      generatedAt: '2026-06-10 13:00:00',
+      granularity: 'day',
+    });
+    db.close();
+    return data;
+  }
+
+  it('alimente les rapports skill et outil', () => {
+    const data = buildFromFixture();
+    expect(data.skills.rows.map((r) => r.skill).sort()).toEqual(['epct', 'epct-sexy']);
+    expect(data.skills.rows.find((r) => r.skill === 'epct')?.rootSkill).toBe('epct-sexy');
+    expect(data.tools.rows.map((r) => r.tool).sort()).toEqual(['Skill', 'mcp__jira__jira_get_issue']);
+    expect(data.tools.servers.map((s) => s.server).sort()).toEqual(['builtin', 'mcp:jira']);
+  });
+
+  it('rend la carte « Coûts par skill » avec la colonne Pipeline', () => {
+    const html = renderDashboard(buildFromFixture());
+    expect(html).toContain('Coûts par skill');
+    expect(html).toContain('<th>Pipeline</th>');
+    expect(html).toContain('epct-sexy');
+  });
+
+  it('rend la carte des outils avec le contexte estimé, et sans coût', () => {
+    const html = renderDashboard(buildFromFixture());
+    expect(html).toContain('serveurs MCP');
+    expect(html).toContain('mcp:jira');
+    expect(html).toContain('1.0k'); // 4000 caractères ≈ 1000 tokens
+  });
+
+  it('n’affiche aucune des deux cartes quand il n’y a rien à montrer', () => {
+    const projectsDir = makeTempDir();
+    writeSessionFile(projectsDir, '-proj', 'vide', [
+      assistantEvent({ id: 'x', requestId: 'rx', model: 'claude-opus-4-8', timestamp: '2026-06-01T10:00:00Z' }),
+    ]);
+    const db = openDatabase(':memory:');
+    ingest(db, projectsDir);
+    const data = buildDashboardData(db, resolver, {
+      sessionsLimit: 30,
+      generatedAt: '2026-06-10 13:00:00',
+      granularity: 'day',
+    });
+    db.close();
+    // Un message hors skill produit tout de même une ligne de skill ; pas d'outil en revanche.
+    expect(renderDashboard(data)).not.toContain('serveurs MCP');
+  });
+
+  it('échappe un nom de skill malveillant', () => {
+    const projectsDir = makeTempDir();
+    writeSessionFile(projectsDir, '-proj', 'sess1', [
+      assistantEvent({
+        id: 'm1',
+        requestId: 'r1',
+        model: 'claude-opus-4-8',
+        timestamp: '2026-06-01T10:00:00Z',
+        attributionSkill: '<script>alert(1)</script>',
+      }),
+    ]);
+    const db = openDatabase(':memory:');
+    ingest(db, projectsDir);
+    const html = renderDashboard(
+      buildDashboardData(db, resolver, { sessionsLimit: 30, generatedAt: 'x', granularity: 'day' }),
+    );
+    db.close();
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 });

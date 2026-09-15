@@ -1,6 +1,13 @@
 import Table from 'cli-table3';
 import pc from 'picocolors';
-import type { AgentReport, DimensionReport, SessionReport } from '../report/aggregate.js';
+import type {
+  AgentReport,
+  DimensionReport,
+  SessionReport,
+  SkillReport,
+  ToolReport,
+} from '../report/aggregate.js';
+import { estimateTokensFromChars } from '../report/aggregate.js';
 import { totalTokens, type UsageCounts } from '../pricing/cost-model.js';
 import { prettyProject } from '../parser/session-path.js';
 import { formatDateTime, formatTokens, formatUsd } from './currency.js';
@@ -133,6 +140,116 @@ export function renderAgentsTable(report: AgentReport): string {
     pc.bold(pc.green(formatUsd(report.total.cost))),
   ]);
 
+  return table.toString();
+}
+
+/**
+ * Rend le tableau des skills : ce que chaque skill a réellement coûté, et le PIPELINE dont il
+ * fait partie (la racine de sa chaîne d'invocation).
+ *
+ * Un même skill peut apparaître deux fois avec deux pipelines différents : `/epct` lancé seul
+ * et `/epct` lancé par `/epct-sexy` ne sont pas le même usage, et les fusionner effacerait
+ * précisément l'information recherchée.
+ */
+export function renderSkillsTable(report: SkillReport): string {
+  const table = new Table({
+    head: ['Skill', 'Pipeline', 'Modèles', 'Msgs', 'Tokens', 'Coût'].map((h) => pc.bold(h)),
+    style: { head: [], border: [] },
+  });
+
+  for (const row of report.rows) {
+    table.push([
+      truncate(row.skill, 28),
+      row.rootSkill === row.skill ? pc.dim('—') : truncate(row.rootSkill, 22),
+      row.models.map(shortModel).join(', ') || '—',
+      row.messageCount,
+      formatTokens(totalTokens(row.counts)),
+      pc.green(formatUsd(row.cost)),
+    ]);
+  }
+
+  const t = report.total;
+  table.push([
+    pc.bold(`${report.rows.length} skills`),
+    '',
+    '',
+    pc.bold(String(t.messageCount)),
+    pc.bold(formatTokens(totalTokens(t.counts))),
+    pc.bold(pc.green(formatUsd(t.cost))),
+  ]);
+
+  return table.toString();
+}
+
+/** Rend le tableau des pipelines (skills racines), vue repliée du rapport de skills. */
+export function renderPipelinesTable(report: SkillReport): string {
+  const table = new Table({
+    head: ['Pipeline', 'Msgs', 'Tokens', 'Coût'].map((h) => pc.bold(h)),
+    style: { head: [], border: [] },
+  });
+  for (const row of report.pipelines) {
+    table.push([
+      truncate(row.key, 32),
+      row.messageCount,
+      formatTokens(totalTokens(row.counts)),
+      pc.green(formatUsd(row.cost)),
+    ]);
+  }
+  return table.toString();
+}
+
+/**
+ * Rend le tableau des outils. Aucune colonne de coût : un outil ne se facture pas, il INJECTE
+ * du contexte que les requêtes suivantes paieront. La colonne « Contexte » est une ESTIMATION
+ * dérivée du nombre de caractères réellement mesuré, d'où le « ≈ » de son en-tête.
+ */
+export function renderToolsTable(report: ToolReport): string {
+  const table = new Table({
+    head: ['Outil', 'Serveur', 'Skill', 'Appels', 'Err.', '≈ Contexte', 'Img'].map((h) => pc.bold(h)),
+    style: { head: [], border: [] },
+  });
+
+  for (const row of report.rows) {
+    table.push([
+      truncate(row.tool, 38),
+      truncate(row.server, 20),
+      truncate(row.skill, 18),
+      row.callCount,
+      row.errorCount === 0 ? pc.dim('0') : pc.yellow(String(row.errorCount)),
+      formatTokens(estimateTokensFromChars(row.resultChars)),
+      row.resultImages === 0 ? pc.dim('—') : String(row.resultImages),
+    ]);
+  }
+
+  const t = report.total;
+  table.push([
+    pc.bold(`${report.rows.length} outils`),
+    '',
+    '',
+    pc.bold(String(t.callCount)),
+    pc.bold(String(t.errorCount)),
+    pc.bold(formatTokens(estimateTokensFromChars(t.resultChars))),
+    pc.bold(String(t.resultImages)),
+  ]);
+
+  return table.toString();
+}
+
+/** Rend le tableau replié par serveur (un serveur MCP, ou `builtin`). */
+export function renderServersTable(report: ToolReport): string {
+  const table = new Table({
+    head: ['Serveur', 'Appels', 'Err.', '≈ Contexte', 'Img'].map((h) => pc.bold(h)),
+    style: { head: [], border: [] },
+  });
+  for (const row of report.servers) {
+    table.push([
+      truncate(row.server, 28),
+      row.callCount,
+      row.errorCount === 0 ? pc.dim('0') : pc.yellow(String(row.errorCount)),
+      formatTokens(estimateTokensFromChars(row.resultChars)),
+      row.resultImages === 0 ? pc.dim('—') : String(row.resultImages),
+    ]);
+  }
   return table.toString();
 }
 

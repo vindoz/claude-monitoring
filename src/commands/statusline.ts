@@ -78,6 +78,20 @@ export function formatAgents(usage: SessionUsage | null): string {
 }
 
 /**
+ * Résume le skill en cours et ce qu'il a coûté depuis son début, sous-agents inclus.
+ * Chaîne vide hors skill — la statusline ne doit pas s'allonger pour rien.
+ *
+ * La garde porte sur la VALEUR FAUSSE et non sur `null` seul : un nom de skill n'est jamais
+ * vide, et un champ absent doit produire une ligne sans segment plutôt qu'un « /undefined ».
+ */
+export function formatSkill(usage: SessionUsage | null): string {
+  if (!usage || !usage.currentSkill) {
+    return '';
+  }
+  return `/${usage.currentSkill} ${formatUsd(usage.currentSkillCost ?? 0)}`;
+}
+
+/**
  * Construit la ligne de statusline à afficher.
  * Tolère tout champ manquant ou `null` (affiché « — »).
  *
@@ -107,6 +121,10 @@ export function formatStatusline(
   }
 
   const segments = [c.bold(model), c.green(costText), `${coloredBar} ${pctText}${tokensText}`];
+  const skill = formatSkill(sessionUsage ?? null);
+  if (skill !== '') {
+    segments.push(c.magenta(skill));
+  }
   const agents = formatAgents(sessionUsage ?? null);
   if (agents !== '') {
     segments.push(c.cyan(agents));

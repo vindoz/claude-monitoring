@@ -292,6 +292,142 @@ export function getAgentsMeta(db: Db, filters: UsageFilters = {}): AgentMetaRow[
   return db.prepare(sql).all(params) as AgentMetaRow[];
 }
 
+/** Ligne d'usage agrégée au grain (skill, modèle). */
+export interface SkillUsageRow {
+  /** Skill actif, ou `(hors skill)`. */
+  skill: string;
+  sessionId: string;
+  projectSlug: string;
+  /** Modèle (nécessaire car le tarif en dépend). */
+  model: string;
+  messageCount: number;
+  counts: UsageCounts;
+}
+
+/** Arête de filiation entre deux skills, relevée sur une session. */
+export interface SkillEdgeRow {
+  sessionId: string;
+  childSkill: string;
+  parentSkill: string;
+}
+
+/** Ligne d'usage agrégée au grain (outil, skill) : appels et contexte injecté. */
+export interface ToolUsageRow {
+  /** Nom complet de l'outil (`Bash`, `mcp__jira__jira_get_issue`). */
+  tool: string;
+  /** Serveur d'appartenance (`mcp:jira`, `builtin`). */
+  server: string;
+  /** Skill actif au moment des appels, ou `(hors skill)`. */
+  skill: string;
+  projectSlug: string;
+  callCount: number;
+  errorCount: number;
+  /** Caractères de texte injectés dans le contexte par les résultats (images exclues). */
+  resultChars: number;
+  resultImages: number;
+}
+
+/**
+ * Indique si la base possède le grain skill. Même garde que `hasAgentTables` : une base créée
+ * par une version antérieure et ouverte en LECTURE SEULE (`--no-ingest`) n'a pas ces tables.
+ */
+export function hasSkillTables(db: Db): boolean {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM sqlite_master
+       WHERE type = 'table' AND name IN ('skill_rollup', 'skill_edges')`,
+    )
+    .get() as { n: number };
+  return row.n === 2;
+}
+
+/** Indique si la base possède le grain outil (même garde que `hasSkillTables`). */
+export function hasToolTables(db: Db): boolean {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'tool_rollup'`)
+    .get() as { n: number };
+  return row.n === 1;
+}
+
+/**
+ * Agrège l'usage par (skill, session, modèle). Le modèle reste dans le regroupement parce que
+ * le tarif en dépend ; la session y reste parce que la racine d'une chaîne de skills se résout
+ * session par session (un même skill peut être lancé par des parents différents ailleurs).
+ */
+export function getSkillUsage(db: Db, filters: UsageFilters = {}): SkillUsageRow[] {
+  if (!hasSkillTables(db)) {
+    return [];
+  }
+  const { clause, params } = buildWhere(filters);
+  const sql = `
+    SELECT skill, session_id AS sessionId, project_slug AS projectSlug, model,
+      ${USAGE_SUMS}
+    FROM skill_rollup
+    ${clause}
+    GROUP BY skill, sessionId, model
+    ORDER BY skill, model`;
+  const rows = db.prepare(sql).all(params) as Array<
+    RawCounts & Omit<SkillUsageRow, 'counts' | 'messageCount'>
+  >;
+  return rows.map((raw) => ({
+    skill: raw.skill,
+    sessionId: raw.sessionId,
+    projectSlug: raw.projectSlug,
+    model: raw.model,
+    messageCount: raw.messageCount,
+    counts: rawToCounts(raw),
+  }));
+}
+
+/**
+ * Récupère les arêtes de filiation entre skills. Comme `getAgentsMeta`, seul le filtre de
+ * projet s'applique : la table n'a pas de colonne `day`, et restreindre les arêtes à une
+ * période reviendrait à perdre la racine des chaînes ouvertes avant elle.
+ */
+export function getSkillEdges(db: Db, filters: UsageFilters = {}): SkillEdgeRow[] {
+  if (!hasSkillTables(db)) {
+    return [];
+  }
+  const params: Record<string, string> = {};
+  let clause = '';
+  if (filters.project) {
+    clause = 'WHERE project_slug = @project';
+    params.project = filters.project;
+  }
+  const sql = `
+    SELECT session_id AS sessionId, child_skill AS childSkill, parent_skill AS parentSkill
+    FROM skill_edges
+    ${clause}`;
+  return db.prepare(sql).all(params) as SkillEdgeRow[];
+}
+
+/**
+ * Agrège les appels d'outils par (outil, skill). Le filtre `model` est volontairement ignoré :
+ * `tool_rollup` n'a pas de colonne `model`, un appel d'outil n'étant pas produit par un modèle
+ * mais par un tour de boucle.
+ */
+export function getToolUsage(db: Db, filters: UsageFilters = {}): ToolUsageRow[] {
+  if (!hasToolTables(db)) {
+    return [];
+  }
+  const { clause, params } = buildWhere({
+    project: filters.project,
+    since: filters.since,
+    until: filters.until,
+  });
+  const sql = `
+    SELECT tool, server, skill, project_slug AS projectSlug,
+      SUM(call_count)    AS callCount,
+      SUM(error_count)   AS errorCount,
+      SUM(result_chars)  AS resultChars,
+      SUM(result_images) AS resultImages
+    FROM tool_rollup
+    ${clause}
+    GROUP BY tool, skill
+    ORDER BY callCount DESC`;
+  return db.prepare(sql).all(params) as ToolUsageRow[];
+}
+
 /** Indique si la base ne contient encore aucune donnée d'usage. */
 export function isDatabaseEmpty(db: Db): boolean {
   const row = db.prepare('SELECT COUNT(*) AS n FROM usage_rollup').get() as { n: number };

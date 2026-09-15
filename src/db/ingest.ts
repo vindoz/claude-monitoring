@@ -1,10 +1,15 @@
 import { statSync } from 'node:fs';
 import type { Db } from './database.js';
-import { AGENTS_BACKFILLED_KEY } from './schema.js';
+import { AGENTS_BACKFILLED_KEY, SKILLS_BACKFILLED_KEY } from './schema.js';
 import { readJsonlFromLine, walkJsonlFiles } from '../parser/jsonl-parser.js';
 import { parseSessionPath, readAgentMeta } from '../parser/session-path.js';
-import { isAiTitleEvent, isAssistantEvent } from '../types/claude-events.js';
-import { extractAssistantUsage } from '../report/usage-aggregation.js';
+import { isAiTitleEvent, isAssistantEvent, isUserEvent } from '../types/claude-events.js';
+import {
+  extractAssistantUsage,
+  extractToolResults,
+  extractToolUses,
+  skillInvocationFrom,
+} from '../report/usage-aggregation.js';
 
 /** Bilan d'une ingestion. */
 export interface IngestResult {
@@ -21,6 +26,14 @@ export interface IngestResult {
   agentsIngested: number;
   /** Vrai si cette exécution a rattrapé le grain agent sur l'historique déjà ingéré. */
   agentsBackfilled: boolean;
+  /** Nombre de messages imputés au grain skill (déduplication propre à ce grain). */
+  skillMessagesIngested: number;
+  /** Nombre d'appels d'outils nouvellement comptés. */
+  toolCallsIngested: number;
+  /** Nombre de résultats d'outils encaissés (poids de contexte injecté). */
+  toolResultsIngested: number;
+  /** Vrai si cette exécution a rattrapé les grains skill et outil sur l'historique. */
+  skillsBackfilled: boolean;
   durationMs: number;
 }
 
@@ -91,8 +104,9 @@ export function ingest(db: Db, projectsDir: string, options: IngestOptions = {})
   // bien qu'un grain ajouté après coup resterait vide sur tout l'historique déjà ingéré. Tant
   // que le drapeau est absent, on force une passe complète — non destructive, car les messages
   // déjà comptés sont rejetés par `seen_messages` et le grain agent est recalculé par fichier.
-  const backfillNeeded = readMeta(db, AGENTS_BACKFILLED_KEY) === null;
-  const forceAll = options.force === true || backfillNeeded;
+  const agentsBackfillNeeded = readMeta(db, AGENTS_BACKFILLED_KEY) === null;
+  const skillsBackfillNeeded = readMeta(db, SKILLS_BACKFILLED_KEY) === null;
+  const forceAll = options.force === true || agentsBackfillNeeded || skillsBackfillNeeded;
 
   const result: IngestResult = {
     filesScanned: 0,
@@ -105,7 +119,11 @@ export function ingest(db: Db, projectsDir: string, options: IngestOptions = {})
     messagesSkippedNoId: 0,
     messagesSkippedNoModel: 0,
     agentsIngested: 0,
-    agentsBackfilled: backfillNeeded,
+    agentsBackfilled: agentsBackfillNeeded,
+    skillMessagesIngested: 0,
+    toolCallsIngested: 0,
+    toolResultsIngested: 0,
+    skillsBackfilled: skillsBackfillNeeded,
     durationMs: 0,
   };
 
@@ -192,6 +210,66 @@ export function ingest(db: Db, projectsDir: string, options: IngestOptions = {})
        last_ts         = excluded.last_ts`,
   );
 
+  // Grain SKILL. Sa déduplication lui est PROPRE : `seen_messages` est déjà peuplé sur tout
+  // l'historique, s'y adosser rendrait le rattrapage inerte (rien à insérer, donc rien à
+  // compter). Elle est franchie EN AMONT de la barrière du grain session.
+  const insSeenSkill = db.prepare<[string, string]>(
+    'INSERT OR IGNORE INTO seen_skill_messages (message_id, request_id) VALUES (?, ?)',
+  );
+  const upsertSkillRollup = db.prepare(
+    `INSERT INTO skill_rollup (
+       session_id, project_slug, skill, model, day, message_count,
+       input_tokens, cache_write_5m_tokens, cache_write_1h_tokens, cache_read_tokens,
+       output_tokens, web_search_requests, web_fetch_requests)
+     VALUES (
+       @sessionId, @projectSlug, @skill, @model, @day, 1,
+       @input, @cw5, @cw1, @cacheRead, @output, @webSearch, @webFetch)
+     ON CONFLICT(session_id, skill, model, day) DO UPDATE SET
+       message_count         = message_count + 1,
+       input_tokens          = input_tokens + excluded.input_tokens,
+       cache_write_5m_tokens = cache_write_5m_tokens + excluded.cache_write_5m_tokens,
+       cache_write_1h_tokens = cache_write_1h_tokens + excluded.cache_write_1h_tokens,
+       cache_read_tokens     = cache_read_tokens + excluded.cache_read_tokens,
+       output_tokens         = output_tokens + excluded.output_tokens,
+       web_search_requests   = web_search_requests + excluded.web_search_requests,
+       web_fetch_requests    = web_fetch_requests + excluded.web_fetch_requests`,
+  );
+  // Filiation des skills : le premier parent rencontré dans la session fait foi (cf. README).
+  const insSkillEdge = db.prepare(
+    `INSERT OR IGNORE INTO skill_edges (session_id, project_slug, child_skill, parent_skill, first_ts)
+     VALUES (@sessionId, @projectSlug, @child, @parent, @firstTs)`,
+  );
+
+  // Grain OUTIL. `seen_tool_calls` est un marqueur PERMANENT d'unicité, jamais supprimé : un
+  // transcript d'agent est relu depuis la ligne 0 à chaque passage, et `--force` relit tout —
+  // supprimer la ligne à la consommation du résultat ferait re-compter l'appel à chaque fois.
+  const insSeenTool = db.prepare(
+    `INSERT OR IGNORE INTO seen_tool_calls (
+       tool_use_id, session_id, project_slug, tool, server, skill, day, resolved)
+     VALUES (@toolUseId, @sessionId, @projectSlug, @tool, @server, @skill, @day, 0)`,
+  );
+  const upsertToolCall = db.prepare(
+    `INSERT INTO tool_rollup (session_id, project_slug, tool, server, skill, day, call_count)
+     VALUES (@sessionId, @projectSlug, @tool, @server, @skill, @day, 1)
+     ON CONFLICT(session_id, tool, skill, day) DO UPDATE SET call_count = call_count + 1`,
+  );
+  // L'encaissement d'un résultat est gardé par la transition 0 → 1 de `resolved` : c'est elle,
+  // et non la présence de la ligne, qui garantit qu'un résultat n'est ajouté qu'une fois.
+  const resolveToolCall = db.prepare<[string]>(
+    'UPDATE seen_tool_calls SET resolved = 1 WHERE tool_use_id = ? AND resolved = 0',
+  );
+  const selToolCall = db.prepare<[string]>(
+    `SELECT session_id AS sessionId, tool, skill, day
+     FROM seen_tool_calls WHERE tool_use_id = ?`,
+  );
+  const addToolResult = db.prepare(
+    `UPDATE tool_rollup
+        SET error_count   = error_count + @errors,
+            result_chars  = result_chars + @chars,
+            result_images = result_images + @images
+      WHERE session_id = @sessionId AND tool = @tool AND skill = @skill AND day = @day`,
+  );
+
   const files = walkJsonlFiles(projectsDir);
   result.filesScanned = files.length;
 
@@ -256,6 +334,34 @@ export function ingest(db: Db, projectsDir: string, options: IngestOptions = {})
           }
           continue;
         }
+
+        // Résultats d'outils : portés par un event `user` POSTÉRIEUR à l'appel, parfois dans
+        // une fenêtre d'ingestion ultérieure. `seen_tool_calls` les recolle à leur appel.
+        if (isUserEvent(event)) {
+          for (const res of extractToolResults(event)) {
+            if (resolveToolCall.run(res.toolUseId).changes === 0) {
+              continue; // appel inconnu, ou résultat déjà encaissé
+            }
+            const call = selToolCall.get(res.toolUseId) as
+              | { sessionId: string; tool: string; skill: string; day: string }
+              | undefined;
+            if (!call) {
+              continue;
+            }
+            addToolResult.run({
+              sessionId: call.sessionId,
+              tool: call.tool,
+              skill: call.skill,
+              day: call.day,
+              errors: res.isError ? 1 : 0,
+              chars: res.chars,
+              images: res.images,
+            });
+            result.toolResultsIngested += 1;
+          }
+          continue;
+        }
+
         if (!isAssistantEvent(event)) {
           continue;
         }
@@ -274,6 +380,45 @@ export function ingest(db: Db, projectsDir: string, options: IngestOptions = {})
           acc.gitBranch = event.gitBranch;
         }
 
+        const day = tsToDay(event.timestamp);
+
+        // Grain OUTIL et filiation des skills : relevés sur TOUTES les lignes, avant toute
+        // déduplication. Un message logique s'étale à raison d'un bloc par ligne, et les
+        // `tool_use` vivent précisément sur les lignes que la dédup `(id, requestId)` rejette.
+        for (const use of extractToolUses(event)) {
+          const firstSeen = insSeenTool.run({
+            toolUseId: use.id,
+            sessionId: info.sessionId,
+            projectSlug: info.projectSlug,
+            tool: use.tool,
+            server: use.server,
+            skill: use.skill,
+            day,
+          });
+          if (firstSeen.changes === 1) {
+            upsertToolCall.run({
+              sessionId: info.sessionId,
+              projectSlug: info.projectSlug,
+              tool: use.tool,
+              server: use.server,
+              skill: use.skill,
+              day,
+            });
+            result.toolCallsIngested += 1;
+          }
+        }
+
+        const edge = skillInvocationFrom(event);
+        if (edge) {
+          insSkillEdge.run({
+            sessionId: info.sessionId,
+            projectSlug: info.projectSlug,
+            child: edge.child,
+            parent: edge.parent,
+            firstTs: ms,
+          });
+        }
+
         // Règle de comptabilisation partagée avec le statusline (cf. usage-aggregation) :
         // la raison du rejet est portée par le helper, l'ingestion ne fait que la ventiler.
         const extracted = extractAssistantUsage(event);
@@ -287,7 +432,26 @@ export function ingest(db: Db, projectsDir: string, options: IngestOptions = {})
         }
 
         const counts = extracted.counts;
-        const day = tsToDay(event.timestamp);
+
+        // Grain SKILL : sa propre déduplication, franchie AVANT la barrière du grain session.
+        // Adossé à `seen_messages`, il n'aurait jamais rien écrit sur l'historique existant.
+        if (insSeenSkill.run(extracted.messageId, extracted.requestId).changes === 1) {
+          upsertSkillRollup.run({
+            sessionId: info.sessionId,
+            projectSlug: info.projectSlug,
+            skill: extracted.skill,
+            model: extracted.model,
+            day,
+            input: counts.input,
+            cw5: counts.cacheWrite5m,
+            cw1: counts.cacheWrite1h,
+            cacheRead: counts.cacheRead,
+            output: counts.output,
+            webSearch: counts.webSearch,
+            webFetch: counts.webFetch,
+          });
+          result.skillMessagesIngested += 1;
+        }
 
         if (agentId !== null) {
           const key = `${extracted.messageId}|${extracted.requestId}`;
@@ -375,8 +539,12 @@ export function ingest(db: Db, projectsDir: string, options: IngestOptions = {})
     options.onProgress?.(i + 1, files.length);
   }
 
-  if (backfillNeeded) {
-    writeMeta(db, AGENTS_BACKFILLED_KEY, new Date(startedAt).toISOString());
+  const finishedAtIso = new Date(startedAt).toISOString();
+  if (agentsBackfillNeeded) {
+    writeMeta(db, AGENTS_BACKFILLED_KEY, finishedAtIso);
+  }
+  if (skillsBackfillNeeded) {
+    writeMeta(db, SKILLS_BACKFILLED_KEY, finishedAtIso);
   }
 
   result.durationMs = Date.now() - startedAt;

@@ -29,6 +29,47 @@ export interface ClaudeUsage {
   };
 }
 
+/**
+ * Élément d'un contenu de résultat d'outil livré sous forme de liste
+ * (`text`, `image`, `tool_reference`). Seul `text` porte du texte exploitable ;
+ * les images sont du base64 dont la longueur n'a aucun rapport avec son poids en tokens.
+ */
+export interface ContentPart {
+  type: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+/** Bloc `tool_use` d'un message assistant : un appel d'outil. */
+export interface ToolUseBlock {
+  type: 'tool_use';
+  /** Identifiant de l'appel (`toolu_...`), unique sur l'ensemble des transcripts. */
+  id?: string;
+  /** Nom de l'outil (`Bash`, `mcp__jira__jira_get_issue`, `Skill`…). */
+  name?: string;
+  input?: Record<string, unknown>;
+}
+
+/**
+ * Bloc `tool_result` : la réponse d'un outil, portée par un event `user` ULTÉRIEUR.
+ * Son `content` prend deux formes : une chaîne (cas majoritaire) ou une liste de blocs.
+ */
+export interface ToolResultBlock {
+  type: 'tool_result';
+  tool_use_id?: string;
+  content?: string | ContentPart[];
+  is_error?: boolean;
+}
+
+/** Bloc de contenu dont on n'exploite que le type (`thinking`, `text`…). */
+export interface OtherBlock {
+  type: string;
+  [key: string]: unknown;
+}
+
+/** Union des blocs de contenu rencontrés dans un message. */
+export type ContentBlock = ToolUseBlock | ToolResultBlock | OtherBlock;
+
 /** Contenu du champ `message` d'un event assistant. */
 export interface AssistantMessage {
   /** Identifiant du message (ex. `msg_...`), utilisé pour la déduplication. */
@@ -36,6 +77,12 @@ export interface AssistantMessage {
   /** Modèle ayant produit la réponse (ex. `claude-opus-4-8`, `<synthetic>`). */
   model?: string;
   usage?: ClaudeUsage;
+  /**
+   * Blocs de contenu de CETTE ligne. Un message logique est réparti sur plusieurs lignes,
+   * une par bloc : les `tool_use` vivent donc sur des lignes que la déduplication par
+   * `(id, requestId)` rejette, d'où leur relevé en amont de celle-ci.
+   */
+  content?: ContentBlock[];
 }
 
 /**
@@ -50,6 +97,15 @@ export interface AssistantEvent {
   requestId?: string;
   /** Vrai pour les transcripts d'agents (sous-tâches). */
   isSidechain?: boolean;
+  /**
+   * Skill actif au moment de la requête API — écrit nativement par Claude Code, y compris
+   * dans les transcripts de sous-agents. Absent quand aucun skill n'est actif.
+   *
+   * Sur une chaîne `/epct-sexy` → `Skill(epct)`, ce champ porte le skill le PLUS INTERNE
+   * (`epct`) ; la ligne qui émet le `tool_use` `Skill` porte encore l'appelant, ce qui permet
+   * de reconstruire la filiation (cf. `skill_edges`).
+   */
+  attributionSkill?: string;
   /** Horodatage ISO 8601 de l'event. */
   timestamp?: string;
   sessionId?: string;
@@ -78,6 +134,20 @@ export interface AgentMeta {
   toolUseId?: string;
 }
 
+/**
+ * Event « user » : porte notamment les `tool_result` des appels d'outils émis par
+ * l'assistant. Aucun token ne lui est imputé — c'est le message assistant SUIVANT qui paie
+ * le contenu injecté ici.
+ */
+export interface UserEvent {
+  type: 'user';
+  message?: {
+    content?: string | ContentBlock[];
+  };
+  timestamp?: string;
+  sessionId?: string;
+}
+
 /** Event « ai-title » : titre humain attribué à la session. */
 export interface AiTitleEvent {
   type: 'ai-title';
@@ -92,11 +162,16 @@ export interface GenericEvent {
 }
 
 /** Union des events que l'on sait traiter. */
-export type ClaudeEvent = AssistantEvent | AiTitleEvent | GenericEvent;
+export type ClaudeEvent = AssistantEvent | UserEvent | AiTitleEvent | GenericEvent;
 
 /** Garde de type : event assistant. */
 export function isAssistantEvent(event: ClaudeEvent): event is AssistantEvent {
   return event.type === 'assistant';
+}
+
+/** Garde de type : event user. */
+export function isUserEvent(event: ClaudeEvent): event is UserEvent {
+  return event.type === 'user';
 }
 
 /** Garde de type : event ai-title. */

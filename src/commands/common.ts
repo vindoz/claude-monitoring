@@ -59,6 +59,13 @@ export function openForRead(opts: CommonOptions): Db | null {
           `(passe complète, sans incidence sur les coûts déjà comptés).`,
       );
     }
+    if (result.skillsBackfilled) {
+      writeErr(
+        `Rattrapage des grains skill et outil : ${result.skillMessagesIngested} message(s) imputé(s) ` +
+          `à un skill, ${result.toolCallsIngested} appel(s) d'outil indexé(s) ` +
+          `(passe complète, sans incidence sur les coûts déjà comptés).`,
+      );
+    }
     writeErr(
       `Ingestion : ${result.filesIngested} fichier(s) traité(s) / ${result.filesUnchanged} inchangé(s), ` +
         `${result.messagesCounted} message(s) comptés, ${result.messagesDuplicate} doublon(s) ignorés ` +

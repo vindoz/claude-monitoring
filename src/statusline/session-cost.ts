@@ -4,7 +4,12 @@ import type { PricingResolver } from '../pricing/pricing-loader.js';
 import { costOf, totalTokens, type UsageCounts } from '../pricing/cost-model.js';
 import { walkJsonlFiles } from '../parser/jsonl-parser.js';
 import { agentIdFromPath, pathToSlug, subagentsDirForTranscript } from '../parser/session-path.js';
-import { aggregateFilesCached, mergeByModel, type FileUsage } from './usage-cache.js';
+import {
+  aggregateFilesCached,
+  mergeByModel,
+  splitSkillModelKey,
+  type FileUsage,
+} from './usage-cache.js';
 
 /** Paramètres de calcul du coût complet d'une session pour le statusline. */
 export interface SessionCostParams {
@@ -30,6 +35,10 @@ export interface SessionUsage {
   agentCount: number;
   /** Nombre d'agents par modèle dominant, du plus fréquent au moins fréquent. */
   agentsByModel: Array<{ model: string; count: number }>;
+  /** Skill actif au dernier message de la boucle principale, `null` hors skill. */
+  currentSkill: string | null;
+  /** Coût cumulé de ce skill sur la session, sous-agents inclus ; 0 si aucun skill actif. */
+  currentSkillCost: number;
 }
 
 /**
@@ -96,6 +105,25 @@ function countAgentsByModel(agentUsages: FileUsage[]): Array<{ model: string; co
 }
 
 /**
+ * Coût cumulé d'un skill sur l'ensemble des transcripts de la session.
+ *
+ * Les transcripts d'agents sont inclus : un agent lancé sous `/epct` fait partie du coût de
+ * `/epct`, et l'en exclure donnerait un chiffre systématiquement sous-évalué.
+ */
+function costOfSkill(usages: FileUsage[], skill: string, resolver: PricingResolver): number {
+  let cost = 0;
+  for (const usage of usages) {
+    for (const [key, counts] of usage.bySkillModel) {
+      const { skill: rowSkill, model } = splitSkillModelKey(key);
+      if (rowSkill === skill) {
+        cost += costOf(counts, resolver.resolve(model).pricing);
+      }
+    }
+  }
+  return cost;
+}
+
+/**
  * Calcule la consommation RÉELLE de la session (transcript principal + sous-agents, cache
  * inclus), au tarif de notre grille, par modèle, et relève au passage les sous-agents et le
  * modèle de chacun. Renvoie `null` en cas d'échec (l'appelant retombe alors sur le chiffre
@@ -121,10 +149,19 @@ export function computeSessionUsage(params: SessionCostParams): SessionUsage | n
     }
 
     const agentUsages = usages.filter((usage) => usage.path !== main);
+
+    // Le skill courant se lit sur le transcript PRINCIPAL et lui seul : les transcripts
+    // d'agents portent eux aussi un `attributionSkill` et sont souvent les plus récemment
+    // modifiés, ils gagneraient donc à tort un arbitrage « le plus récent l'emporte ».
+    const currentSkill = usages.find((usage) => usage.path === main)?.lastSkill ?? null;
+
     return {
       cost,
       agentCount: agentUsages.length,
       agentsByModel: countAgentsByModel(agentUsages),
+      currentSkill,
+      currentSkillCost:
+        currentSkill === null ? 0 : costOfSkill(usages, currentSkill, params.resolver),
     };
   } catch {
     return null;

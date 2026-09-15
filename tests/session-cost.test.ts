@@ -185,3 +185,76 @@ describe('computeSessionUsage — sous-agents', () => {
     expect(usage?.cost).toBeCloseTo(16, 3); // 3 × 1M input opus (5 $) + 1M input haiku (1 $)
   });
 });
+
+describe('skill courant du statusline', () => {
+  it('expose le skill du dernier message et son coût, sous-agents inclus', () => {
+    const projectsDir = makeTempDir();
+    const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
+      assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', usage: { input_tokens: 1_000_000 } }),
+      assistantEvent({
+        id: 'm2',
+        requestId: 'r2',
+        model: 'claude-opus-4-8',
+        usage: { input_tokens: 1_000_000 },
+        attributionSkill: 'epct',
+      }),
+    ]);
+    // Un agent lancé sous le skill fait partie de son coût.
+    writeSubagentFile(projectsDir, '-proj', 'sess1', 'a1', [
+      assistantEvent({
+        id: 's1',
+        requestId: 'rs',
+        model: 'claude-opus-4-8',
+        usage: { input_tokens: 1_000_000 },
+        attributionSkill: 'epct',
+      }),
+    ]);
+
+    const usage = computeSessionUsage({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
+    expect(usage?.currentSkill).toBe('epct');
+    expect(usage?.currentSkillCost).toBeCloseTo(10, 3); // 2 × 1M input opus
+    expect(usage?.cost).toBeCloseTo(15, 3);
+  });
+
+  it('REVIENT à null quand le dernier message n’est plus sous un skill', () => {
+    // Le champ doit être réécrit à CHAQUE message : sinon le segment resterait affiché
+    // indéfiniment après la fin du skill.
+    const projectsDir = makeTempDir();
+    const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
+      assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', attributionSkill: 'epct' }),
+      assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-opus-4-8' }),
+    ]);
+    const usage = computeSessionUsage({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
+    expect(usage?.currentSkill).toBeNull();
+    expect(usage?.currentSkillCost).toBe(0);
+  });
+
+  it('lit le skill courant sur le transcript PRINCIPAL, jamais sur celui d’un agent', () => {
+    const projectsDir = makeTempDir();
+    const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
+      assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8' }),
+    ]);
+    // L'agent est écrit APRÈS et porte un skill : il ne doit pas l'emporter pour autant.
+    writeSubagentFile(projectsDir, '-proj', 'sess1', 'a1', [
+      assistantEvent({ id: 's1', requestId: 'rs', model: 'claude-opus-4-8', attributionSkill: 'kran' }),
+    ]);
+    const usage = computeSessionUsage({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
+    expect(usage?.currentSkill).toBeNull();
+  });
+
+  it('suit le skill à travers une lecture incrémentale mise en cache', () => {
+    const projectsDir = makeTempDir();
+    const cachePath = join(makeTempDir(), 'cache.json');
+    const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
+      assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-4-8', attributionSkill: 'epct' }),
+    ]);
+    const params = { transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver, cachePath };
+    expect(computeSessionUsage(params)?.currentSkill).toBe('epct');
+
+    appendFileSync(
+      mainPath,
+      `${JSON.stringify(assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-opus-4-8' }))}\n`,
+    );
+    expect(computeSessionUsage(params)?.currentSkill).toBeNull();
+  });
+});

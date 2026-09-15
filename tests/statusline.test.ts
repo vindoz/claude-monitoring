@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeContext, formatAgents, formatStatusline } from '../src/commands/statusline.js';
+import { formatSkill, computeContext, formatAgents, formatStatusline } from '../src/commands/statusline.js';
 import type { StatuslineInput } from '../src/types/claude-events.js';
 
 describe('computeContext', () => {
@@ -100,5 +100,36 @@ describe('formatStatusline', () => {
   it('gère une entrée totalement vide', () => {
     const line = formatStatusline({}, { noColor: true });
     expect(line).toContain('—');
+  });
+});
+
+describe('formatSkill', () => {
+  it('rend le skill courant et son coût', () => {
+    expect(
+      formatSkill({ cost: 9, agentCount: 0, agentsByModel: [], currentSkill: 'epct', currentSkillCost: 3.2 }),
+    ).toBe('/epct $3.20');
+  });
+
+  it('ne rend rien hors skill', () => {
+    expect(
+      formatSkill({ cost: 9, agentCount: 0, agentsByModel: [], currentSkill: null, currentSkillCost: 0 }),
+    ).toBe('');
+    expect(formatSkill(null)).toBe('');
+  });
+
+  it('ne rend rien — et surtout pas « /undefined » — si le champ manque', () => {
+    // Un appelant qui construit un `SessionUsage` partiel ne doit pas polluer la ligne.
+    expect(formatSkill({ cost: 9, agentCount: 0, agentsByModel: [] } as never)).toBe('');
+  });
+
+  it('insère le segment dans la ligne complète, entre le contexte et les agents', () => {
+    const line = formatStatusline(
+      { model: { display_name: 'Opus' }, context_window: { used_percentage: 10 } },
+      { noColor: true },
+      { cost: 9, agentCount: 1, agentsByModel: [{ model: 'claude-opus-5', count: 1 }], currentSkill: 'epct', currentSkillCost: 3.2 },
+    );
+    const parts = line.split(' · ');
+    expect(parts[3]).toBe('/epct $3.20');
+    expect(parts[4]).toContain('agent');
   });
 });

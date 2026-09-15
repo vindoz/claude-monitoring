@@ -30,6 +30,14 @@ interface CachedFile {
   parsedBytes: number;
   /** Compteurs par modèle, déjà dédupliqués. */
   byModel: Record<string, UsageCounts>;
+  /** Compteurs par couple (skill, modèle) — clé produite par `skillModelKey`. */
+  bySkillModel: Record<string, UsageCounts>;
+  /**
+   * Skill actif au DERNIER message compté, `null` si ce message n'était sous aucun skill.
+   * Écrit à chaque message et non seulement quand un skill est présent : sinon le skill
+   * resterait affiché indéfiniment après sa fin, la moitié des messages n'en portant aucun.
+   */
+  lastSkill: string | null;
   /**
    * Dernières clés `(message.id, requestId)` comptées. Un message logique s'étale sur plusieurs
    * lignes CONSÉCUTIVES qui répètent son `usage` ; une lecture incrémentale peut couper ce
@@ -47,7 +55,7 @@ interface CacheFile {
 }
 
 /** Version du format : un changement invalide le cache existant plutôt que de le mal relire. */
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 /** Au-delà de cet âge, une entrée jamais réutilisée est purgée (transcript supprimé). */
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -112,9 +120,29 @@ function readByteRange(path: string, from: number, to: number): string {
   }
 }
 
+/** Sépare le skill du modèle dans une clé d'agrégat (le NUL ne peut apparaître dans ni l'un ni l'autre). */
+const SKILL_MODEL_SEPARATOR = '\u0000';
+
+/** Construit la clé d'agrégat d'un couple (skill, modèle). */
+export function skillModelKey(skill: string, model: string): string {
+  return `${skill}${SKILL_MODEL_SEPARATOR}${model}`;
+}
+
+/** Décompose une clé d'agrégat en son couple (skill, modèle). */
+export function splitSkillModelKey(key: string): { skill: string; model: string } {
+  const index = key.indexOf(SKILL_MODEL_SEPARATOR);
+  if (index === -1) {
+    return { skill: key, model: '' };
+  }
+  return { skill: key.slice(0, index), model: key.slice(index + 1) };
+}
+
 /** Résultat de l'agrégation d'une fenêtre de texte JSONL. */
 interface WindowAggregate {
   byModel: Map<string, UsageCounts>;
+  bySkillModel: Map<string, UsageCounts>;
+  /** Skill du dernier message compté — n'a de sens que si `keys` n'est pas vide. */
+  lastSkill: string | null;
   /** Clés comptées, dans l'ordre de lecture. */
   keys: string[];
   /** Octets consommés : jusqu'au dernier saut de ligne inclus. */
@@ -127,8 +155,10 @@ interface WindowAggregate {
  */
 function aggregateWindow(text: string, alreadySeen: Iterable<string>): WindowAggregate {
   const byModel = new Map<string, UsageCounts>();
+  const bySkillModel = new Map<string, UsageCounts>();
   const seen = new Set(alreadySeen);
   const keys: string[] = [];
+  let lastSkill: string | null = null;
 
   for (const line of splitCompleteLines(text)) {
     if (line.trim().length === 0) {
@@ -151,26 +181,35 @@ function aggregateWindow(text: string, alreadySeen: Iterable<string>): WindowAgg
     seen.add(key);
     keys.push(key);
     byModel.set(extracted.model, addUsage(byModel.get(extracted.model) ?? zeroUsage(), extracted.counts));
+    const skillKey = skillModelKey(extracted.skill, extracted.model);
+    bySkillModel.set(skillKey, addUsage(bySkillModel.get(skillKey) ?? zeroUsage(), extracted.counts));
+    lastSkill = extracted.rawSkill;
   }
 
   const lastNewline = text.lastIndexOf('\n');
   return {
     byModel,
+    bySkillModel,
+    lastSkill,
     keys,
     consumedBytes: lastNewline === -1 ? 0 : Buffer.byteLength(text.slice(0, lastNewline + 1), 'utf8'),
   };
 }
 
-/** Agrégat par modèle d'un fichier, avec son chemin d'origine. */
+/** Agrégat d'un fichier, avec son chemin d'origine. */
 export interface FileUsage {
   path: string;
   byModel: Map<string, UsageCounts>;
+  /** Agrégat par couple (skill, modèle) — le coût dépend du modèle, l'imputation du skill. */
+  bySkillModel: Map<string, UsageCounts>;
+  /** Skill actif au dernier message compté de ce fichier, `null` sinon. */
+  lastSkill: string | null;
 }
 
 /** Ajoute les compteurs d'une fenêtre à l'agrégat cumulé d'un fichier. */
 function accumulate(target: Record<string, UsageCounts>, window: Map<string, UsageCounts>): void {
-  for (const [model, counts] of window) {
-    target[model] = addUsage(target[model] ?? zeroUsage(), counts);
+  for (const [key, counts] of window) {
+    target[key] = addUsage(target[key] ?? zeroUsage(), counts);
   }
 }
 
@@ -202,7 +241,12 @@ export function aggregateFilesCached(files: string[], cachePath: string | null):
     // Fichier inchangé : l'agrégat mémorisé est valable tel quel.
     if (cached && cached.size === size && cached.mtimeMs === mtimeMs) {
       cached.usedAt = now;
-      results.push({ path: file, byModel: new Map(Object.entries(cached.byModel)) });
+      results.push({
+        path: file,
+        byModel: new Map(Object.entries(cached.byModel)),
+        bySkillModel: new Map(Object.entries(cached.bySkillModel ?? {})),
+        lastSkill: cached.lastSkill ?? null,
+      });
       continue;
     }
 
@@ -214,13 +258,25 @@ export function aggregateFilesCached(files: string[], cachePath: string | null):
           cached.recentKeys,
         );
         accumulate(cached.byModel, window.byModel);
+        cached.bySkillModel = cached.bySkillModel ?? {};
+        accumulate(cached.bySkillModel, window.bySkillModel);
+        // Une fenêtre sans message compté n'apprend rien sur le skill courant : on garde
+        // la valeur précédente plutôt que de la remettre à zéro à chaque rafraîchissement.
+        if (window.keys.length > 0) {
+          cached.lastSkill = window.lastSkill;
+        }
         cached.parsedBytes += window.consumedBytes;
         cached.recentKeys = [...cached.recentKeys, ...window.keys].slice(-RECENT_KEYS_MAX);
         cached.size = size;
         cached.mtimeMs = mtimeMs;
         cached.usedAt = now;
         changed = true;
-        results.push({ path: file, byModel: new Map(Object.entries(cached.byModel)) });
+        results.push({
+          path: file,
+          byModel: new Map(Object.entries(cached.byModel)),
+          bySkillModel: new Map(Object.entries(cached.bySkillModel)),
+          lastSkill: cached.lastSkill ?? null,
+        });
         continue;
       }
 
@@ -231,11 +287,18 @@ export function aggregateFilesCached(files: string[], cachePath: string | null):
         mtimeMs,
         parsedBytes: window.consumedBytes,
         byModel: Object.fromEntries(window.byModel),
+        bySkillModel: Object.fromEntries(window.bySkillModel),
+        lastSkill: window.keys.length > 0 ? window.lastSkill : null,
         recentKeys: window.keys.slice(-RECENT_KEYS_MAX),
         usedAt: now,
       };
       changed = true;
-      results.push({ path: file, byModel: window.byModel });
+      results.push({
+        path: file,
+        byModel: window.byModel,
+        bySkillModel: window.bySkillModel,
+        lastSkill: window.keys.length > 0 ? window.lastSkill : null,
+      });
     } catch {
       continue; // fichier illisible : ignoré, comme à l'ingestion
     }

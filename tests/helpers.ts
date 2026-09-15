@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AssistantEvent, ClaudeUsage } from '../src/types/claude-events.js';
+import type { AssistantEvent, ClaudeUsage, ContentBlock } from '../src/types/claude-events.js';
 
 /** Crée un répertoire temporaire isolé pour un test. */
 export function makeTempDir(prefix = 'ccmon-test-'): string {
@@ -17,6 +17,10 @@ export function assistantEvent(params: {
   usage?: ClaudeUsage;
   cwd?: string;
   gitBranch?: string;
+  /** Skill actif, tel que Claude Code l'écrit sur l'event. */
+  attributionSkill?: string;
+  /** Blocs de contenu de CETTE ligne (un message réel en répartit un par ligne). */
+  content?: unknown[];
 }): AssistantEvent {
   return {
     type: 'assistant',
@@ -24,10 +28,66 @@ export function assistantEvent(params: {
     timestamp: params.timestamp,
     cwd: params.cwd,
     gitBranch: params.gitBranch,
+    attributionSkill: params.attributionSkill,
     message: {
       id: params.id,
       model: params.model ?? 'claude-opus-4-8',
       usage: params.usage ?? { input_tokens: 100, output_tokens: 50 },
+      content: params.content as ContentBlock[] | undefined,
+    },
+  };
+}
+
+/**
+ * Construit la LIGNE JUMELLE d'un message assistant, celle qui porte un bloc `tool_use`.
+ *
+ * Reproduit fidèlement le transcript réel : même `message.id` et même `requestId` que la ligne
+ * de texte, et `usage` répété à l'identique. C'est cette ligne que la déduplication du grain
+ * session rejette — d'où l'intérêt de la tester.
+ */
+export function toolUseLine(params: {
+  id: string;
+  requestId?: string;
+  model?: string;
+  timestamp?: string;
+  usage?: ClaudeUsage;
+  attributionSkill?: string;
+  toolUseId: string;
+  toolName: string;
+  input?: Record<string, unknown>;
+}): AssistantEvent {
+  return assistantEvent({
+    ...params,
+    content: [
+      {
+        type: 'tool_use',
+        id: params.toolUseId,
+        name: params.toolName,
+        input: params.input ?? {},
+      },
+    ],
+  });
+}
+
+/** Construit l'event `user` porteur du résultat d'un appel d'outil. */
+export function toolResultEvent(params: {
+  toolUseId: string;
+  content: unknown;
+  isError?: boolean;
+  timestamp?: string;
+}): unknown {
+  return {
+    type: 'user',
+    timestamp: params.timestamp,
+    message: {
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: params.toolUseId,
+          content: params.content,
+          is_error: params.isError ?? false,
+        },
+      ],
     },
   };
 }

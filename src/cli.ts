@@ -93,6 +93,70 @@ program
   });
 
 program
+  .command('skills')
+  .description('Liste ce que chaque skill a coûté, et le pipeline dont il relève')
+  .option('--project <slug>', 'filtre par slug de projet')
+  .option('--pipeline <skill>', 'filtre par pipeline (skill racine de la chaîne)')
+  .option('--since <date>', 'jour minimum inclus (YYYY-MM-DD)')
+  .option('--until <date>', 'jour maximum inclus (YYYY-MM-DD)')
+  .option('--limit <n>', 'nombre maximum de skills affichés', toInt, 50)
+  .option('--json', 'sortie au format JSON')
+  .option('--no-ingest', 'ne pas (ré)ingérer avant affichage')
+  .option('--db <path>', 'chemin de la base SQLite')
+  .option('--projects-dir <path>', 'répertoire des transcripts Claude Code')
+  .option('--pricing <path>', 'fichier de pricing override')
+  .option('-q, --quiet', "masque le bilan d'ingestion")
+  .action(async (opts) => {
+    const { runSkills } = await import('./commands/skills.js');
+    runSkills({
+      project: opts.project,
+      pipeline: opts.pipeline,
+      since: opts.since,
+      until: opts.until,
+      limit: opts.limit,
+      json: opts.json,
+      noIngest: opts.ingest === false,
+      db: opts.db,
+      projectsDir: opts.projectsDir,
+      pricing: opts.pricing,
+      quiet: opts.quiet,
+    });
+  });
+
+program
+  .command('tools')
+  .description('Liste les appels d’outils et le contexte qu’ils injectent (dont les serveurs MCP)')
+  .option('--project <slug>', 'filtre par slug de projet')
+  .option('--server <nom>', 'filtre par serveur (jira, mcp:jira, builtin)')
+  .option('--mcp', 'ne garde que les outils exposés par un serveur MCP')
+  .option('--skill <nom>', 'ne garde que les appels passés sous ce skill')
+  .option('--since <date>', 'jour minimum inclus (YYYY-MM-DD)')
+  .option('--until <date>', 'jour maximum inclus (YYYY-MM-DD)')
+  .option('--limit <n>', 'nombre maximum d’outils affichés', toInt, 50)
+  .option('--json', 'sortie au format JSON')
+  .option('--no-ingest', 'ne pas (ré)ingérer avant affichage')
+  .option('--db <path>', 'chemin de la base SQLite')
+  .option('--projects-dir <path>', 'répertoire des transcripts Claude Code')
+  .option('-q, --quiet', "masque le bilan d'ingestion")
+  .action(async (opts) => {
+    const { runTools } = await import('./commands/tools.js');
+    runTools({
+      project: opts.project,
+      server: opts.server,
+      mcp: opts.mcp,
+      skill: opts.skill,
+      since: opts.since,
+      until: opts.until,
+      limit: opts.limit,
+      json: opts.json,
+      noIngest: opts.ingest === false,
+      db: opts.db,
+      projectsDir: opts.projectsDir,
+      quiet: opts.quiet,
+    });
+  });
+
+program
   .command('summary')
   .description('Agrège les coûts par projet, session, modèle ou jour')
   .requiredOption('--by <dimension>', 'project | session | model | day')

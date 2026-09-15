@@ -1,4 +1,11 @@
-import type { AgentReportRow, DimensionReport, SessionReport } from '../report/aggregate.js';
+import type {
+  AgentReportRow,
+  DimensionReport,
+  SessionReport,
+  SkillReport,
+  ToolReport,
+} from '../report/aggregate.js';
+import { estimateTokensFromChars } from '../report/aggregate.js';
 import type { ModelPricing } from '../pricing/default-pricing.js';
 import type { PricingMatch } from '../pricing/pricing-loader.js';
 import { totalTokens } from '../pricing/cost-model.js';
@@ -24,6 +31,10 @@ export interface DashboardData {
   sessions: SessionReport;
   /** Sous-agents de chaque session, dépliables sous sa ligne. */
   agentsBySession: Map<string, AgentReportRow[]>;
+  /** Consommation par skill, avec le pipeline (racine de chaîne) de chacun. */
+  skills: SkillReport;
+  /** Appels d'outils et contexte injecté, par outil et par serveur. */
+  tools: ToolReport;
   /** Série temporelle empilée par projet pour le graphique d'évolution. */
   stacked: StackedSeries;
   /** Granularité courante du graphique. */
@@ -221,6 +232,113 @@ function sessionsSection(report: SessionReport, agentsBySession: Map<string, Age
     <table>
       <thead><tr><th></th><th>Session</th><th>Projet</th><th>Titre</th><th>Dernière activité</th><th>Modèles</th><th class="num">Agents</th><th class="num">Msgs</th><th class="num">Tokens</th><th>Coût</th></tr></thead>
       <tbody>${rows}</tbody>
+    </table>
+    </div>
+  </section>`;
+}
+
+/**
+ * Rend la carte « Coûts par skill ». La colonne Pipeline porte la racine de la chaîne
+ * d'invocation : un `/epct` lancé par `/epct-sexy` s'y rattache, au lieu d'apparaître comme
+ * un usage indépendant.
+ */
+function skillsSection(report: SkillReport): string {
+  if (report.rows.length === 0) {
+    return '';
+  }
+  const maxCost = report.rows.reduce((m, r) => Math.max(m, r.cost), 0);
+  const body = report.rows
+    .map((row) => {
+      const width = barWidth(row.cost, maxCost);
+      const pipeline = row.rootSkill === row.skill ? '—' : row.rootSkill;
+      return `<tr>
+        <td class="key" title="${escapeHtml(row.skill)}">${escapeHtml(row.skill)}</td>
+        <td class="mono">${escapeHtml(pipeline)}</td>
+        <td class="num">${row.messageCount}</td>
+        <td class="num">${escapeHtml(formatTokens(totalTokens(row.counts)))}</td>
+        <td class="cost">
+          <div class="bar"><span style="width:${width}%"></span></div>
+          <strong>${escapeHtml(formatUsd(row.cost))}</strong>
+        </td>
+      </tr>`;
+    })
+    .join('\n');
+
+  return `<section class="card">
+    <h2>Coûts par skill <span class="sub">pipeline = racine de la chaîne</span></h2>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Skill</th><th>Pipeline</th><th class="num">Msgs</th><th class="num">Tokens</th><th>Coût</th></tr></thead>
+      <tbody>
+        ${body}
+        <tr class="total">
+          <td colspan="2">TOTAL</td>
+          <td class="num">${report.total.messageCount}</td>
+          <td class="num">${escapeHtml(formatTokens(totalTokens(report.total.counts)))}</td>
+          <td><strong>${escapeHtml(formatUsd(report.total.cost))}</strong></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>`;
+}
+
+/**
+ * Rend la carte « Outils & serveurs MCP ».
+ *
+ * Volontairement SANS colonne de coût : un appel d'outil n'est pas facturé, c'est le contexte
+ * que son résultat injecte qui se paie — et se repaie à chaque requête suivante de la session.
+ * La colonne est donc une estimation de poids, signalée comme telle.
+ */
+function toolsSection(report: ToolReport): string {
+  if (report.rows.length === 0) {
+    return '';
+  }
+  const maxChars = report.rows.reduce((m, r) => Math.max(m, r.resultChars), 0);
+  const serverRows = report.servers
+    .map(
+      (row) => `<tr>
+        <td class="key">${escapeHtml(row.server)}</td>
+        <td class="num">${row.callCount}</td>
+        <td class="num">${escapeHtml(formatTokens(estimateTokensFromChars(row.resultChars)))}</td>
+      </tr>`,
+    )
+    .join('\n');
+
+  const toolRows = report.rows
+    .map((row) => {
+      const width = barWidth(row.resultChars, maxChars);
+      return `<tr>
+        <td class="key" title="${escapeHtml(row.tool)}">${escapeHtml(row.tool)}</td>
+        <td class="mono">${escapeHtml(row.skill)}</td>
+        <td class="num">${row.callCount}</td>
+        <td class="num">${row.errorCount === 0 ? '—' : row.errorCount}</td>
+        <td class="cost">
+          <div class="bar"><span style="width:${width}%"></span></div>
+          <strong>${escapeHtml(formatTokens(estimateTokensFromChars(row.resultChars)))}</strong>
+        </td>
+      </tr>`;
+    })
+    .join('\n');
+
+  return `<section class="card">
+    <h2>Outils &amp; serveurs MCP <span class="sub">contexte injecté, estimé</span></h2>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Serveur</th><th class="num">Appels</th><th class="num">≈ Contexte</th></tr></thead>
+      <tbody>${serverRows}</tbody>
+    </table>
+    <table>
+      <thead><tr><th>Outil</th><th>Skill</th><th class="num">Appels</th><th class="num">Err.</th><th>≈ Contexte</th></tr></thead>
+      <tbody>
+        ${toolRows}
+        <tr class="total">
+          <td colspan="2">TOTAL</td>
+          <td class="num">${report.total.callCount}</td>
+          <td class="num">${report.total.errorCount}</td>
+          <td><strong>${escapeHtml(formatTokens(estimateTokensFromChars(report.total.resultChars)))}</strong></td>
+        </tr>
+      </tbody>
     </table>
     </div>
   </section>`;
@@ -447,6 +565,8 @@ export function renderDashboard(data: DashboardData): string {
     ${dimensionSection('Coûts par projet', 'Projet', data.byProject, projectLabel)}
     ${dimensionSection('Coûts par modèle', 'Modèle', data.byModel, shortModel)}
     ${dimensionSection('Coûts par jour', 'Jour', data.byDay)}
+    ${skillsSection(data.skills)}
+    ${toolsSection(data.tools)}
     ${pricingSection(data.pricingRows)}
     ${sessionsSection(data.sessions, data.agentsBySession)}
   </main>

@@ -33,6 +33,12 @@ export function runIngest(opts: IngestCommandOptions): void {
     if (result.agentsBackfilled) {
       writeOut('  (passe de rattrapage du grain agent : les coûts déjà comptés sont inchangés)');
     }
+    writeOut(`Messages par skill   : ${result.skillMessagesIngested}`);
+    writeOut(`Appels d’outils      : ${result.toolCallsIngested}`);
+    writeOut(`  résultats encaissés: ${result.toolResultsIngested}`);
+    if (result.skillsBackfilled) {
+      writeOut('  (passe de rattrapage des grains skill et outil : les coûts déjà comptés sont inchangés)');
+    }
     writeOut(`Durée                : ${result.durationMs} ms`);
   } finally {
     db.close();
