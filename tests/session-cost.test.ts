@@ -42,6 +42,17 @@ describe('computeSessionCost', () => {
     expect(r).toBeCloseTo(75.45, 3);
   });
 
+  it('facture le fast mode au double du tarif standard', () => {
+    const projectsDir = makeTempDir();
+    const mainPath = writeSessionFile(projectsDir, '-proj', 'sess1', [
+      // Même modèle, deux vitesses : 20 $ la sortie standard, 40 $ la sortie fast.
+      assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-5-5', usage: { output_tokens: 1_000_000, speed: 'standard' } }),
+      assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-opus-5-5', usage: { output_tokens: 1_000_000, speed: 'fast' } }),
+    ]);
+    const r = computeSessionCost({ transcriptPath: mainPath, sessionId: 'sess1', cwd: '/x', projectsDir, resolver });
+    expect(r).toBeCloseTo(60, 3);
+  });
+
   it('reconstruit le chemin depuis cwd + sessionId si transcript_path est absent', () => {
     const projectsDir = makeTempDir();
     // pathToSlug('/proj') === '-proj'

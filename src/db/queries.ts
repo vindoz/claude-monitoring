@@ -1,5 +1,6 @@
 import type { Db } from './database.js';
 import { type UsageCounts } from '../pricing/cost-model.js';
+import { FAST_MODE_SUFFIX } from '../pricing/model-normalizer.js';
 
 /** Dimension d'agrégation des coûts. */
 export type Dimension = 'project' | 'session' | 'model' | 'day';
@@ -12,7 +13,7 @@ export interface UsageFilters {
   since?: string;
   /** Borne supérieure de jour incluse (`YYYY-MM-DD`). */
   until?: string;
-  /** Identifiant de modèle exact (tel que stocké). */
+  /** Identifiant de modèle exact (tel que stocké) ; inclut sa variante `@fast`. */
   model?: string;
 }
 
@@ -97,8 +98,11 @@ function buildWhere(filters: UsageFilters): { clause: string; params: Record<str
     params.until = filters.until;
   }
   if (filters.model) {
-    conditions.push('model = @model');
+    // Un modèle nommé inclut son usage fast mode, compté sous la clé `<modèle>@fast` ; un
+    // filtre déjà suffixé reste strict (`…@fast@fast` n'existe jamais).
+    conditions.push('(model = @model OR model = @modelFast)');
     params.model = filters.model;
+    params.modelFast = `${filters.model}${FAST_MODE_SUFFIX}`;
   }
   const clause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   return { clause, params };

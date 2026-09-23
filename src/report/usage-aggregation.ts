@@ -7,7 +7,7 @@ import {
   type ToolResultBlock,
   type ToolUseBlock,
 } from '../types/claude-events.js';
-import { isSyntheticModel } from '../pricing/model-normalizer.js';
+import { billingModelId, isSyntheticModel } from '../pricing/model-normalizer.js';
 import { addUsage, usageFromClaude, zeroUsage, type UsageCounts } from '../pricing/cost-model.js';
 
 /**
@@ -65,7 +65,8 @@ export function extractAssistantUsage(event: ClaudeEvent): UsageExtraction {
   }
   return {
     ok: true,
-    model,
+    // Le fast mode garde l'identifiant du modèle : c'est la clé qui porte le tarif doublé.
+    model: billingModelId(model, event.message?.usage?.speed),
     messageId,
     requestId: event.requestId ?? '',
     counts: usageFromClaude(event.message?.usage),

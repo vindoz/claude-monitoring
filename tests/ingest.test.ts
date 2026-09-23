@@ -137,6 +137,30 @@ describe('queries', () => {
 
     db.close();
   });
+
+  it('compte le fast mode sous `@fast` et l’inclut dans le filtre de son modèle', () => {
+    const projectsDir = makeTempDir();
+    writeSessionFile(projectsDir, '-proj', 'sess1', [
+      assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-5-5', usage: { ...usage(1000, 0), speed: 'standard' } }),
+      assistantEvent({ id: 'm2', requestId: 'r2', model: 'claude-opus-5-5', usage: { ...usage(3000, 0), speed: 'fast' } }),
+      assistantEvent({ id: 'm3', requestId: 'r3', model: 'claude-haiku-4-5', usage: usage(5000, 0) }),
+    ]);
+    const db = openDatabase(':memory:');
+    ingest(db, projectsDir);
+
+    const byModel = getUsageByDimension(db, 'model');
+    expect(byModel.map((r) => r.key).sort()).toEqual(['claude-haiku-4-5', 'claude-opus-5-5', 'claude-opus-5-5@fast']);
+
+    // Le modèle nommé inclut sa variante fast…
+    const opus = getUsageByDimension(db, 'model', { model: 'claude-opus-5-5' });
+    expect(opus.map((r) => r.key).sort()).toEqual(['claude-opus-5-5', 'claude-opus-5-5@fast']);
+    // …un filtre suffixé reste strict.
+    const fastOnly = getUsageByDimension(db, 'model', { model: 'claude-opus-5-5@fast' });
+    expect(fastOnly.map((r) => r.key)).toEqual(['claude-opus-5-5@fast']);
+    expect(fastOnly[0].counts.input).toBe(3000);
+
+    db.close();
+  });
 });
 
 /** Somme des tokens d'entrée stockés (pour vérifier l'idempotence). */

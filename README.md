@@ -198,6 +198,13 @@ La lecture de cache vaut partout 0,1 × le tarif d'entrée, **sauf sur deux mod�
 où elle tombe à 0,025 × (0,25 $ au lieu de 1 $), et Opus 5.5, où elle tombe à 0,05 × (0,20 $ au
 lieu de 0,40 $). Ces deux abattements ne valent que pour ces modèles précis.
 
+Le **fast mode** (Opus 5.5, Opus 5, Opus 4.8) est facturé au **double** du tarif standard du
+modèle, écritures et lectures de cache comprises : 8 $ / 40 $ sur Opus 5.5, 10 $ / 50 $ sur
+Opus 5 et 4.8. Un message servi en fast mode (`usage.speed` à `fast` dans le transcript) est
+compté sous la clé `<modèle>@fast` — `opus-5-5@fast` dans les tableaux. Le filtre
+`--model claude-opus-5-5` inclut sa variante fast ; `--model claude-opus-5-5@fast` l'isole. Une
+entrée `"claude-opus-5-5@fast"` dans le fichier de surcharge remplace le calcul au double.
+
 Un modèle absent de la grille est tarifé au barème de la **génération courante de sa famille**
 (`opus`, `sonnet`, `haiku`, `fable`), **sans** abattement de lecture : un identifiant Opus inconnu
 compte 4 $ / 20 $ avec une lecture à 0,40 $, un identifiant Fable inconnu reste au barème de

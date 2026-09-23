@@ -27,6 +27,8 @@ export interface ClaudeUsage {
     web_search_requests?: number;
     web_fetch_requests?: number;
   };
+  /** Vitesse d'inférence : `fast` (fast mode, tarif doublé) ou `standard`. */
+  speed?: string;
 }
 
 /**

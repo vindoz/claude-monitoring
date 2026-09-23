@@ -1,9 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
+  billingModelId,
   isSyntheticModel,
   modelFamily,
   normalizeModelId,
+  splitFastMode,
 } from '../src/pricing/model-normalizer.js';
+
+describe('fast mode', () => {
+  it('suffixe la clé de facturation uniquement pour speed = fast', () => {
+    expect(billingModelId('claude-opus-5-5', 'fast')).toBe('claude-opus-5-5@fast');
+    expect(billingModelId('claude-opus-5-5', 'standard')).toBe('claude-opus-5-5');
+    expect(billingModelId('claude-opus-5-5', undefined)).toBe('claude-opus-5-5');
+  });
+
+  it('sépare base et indicateur, date comprise', () => {
+    expect(splitFastMode('claude-opus-5-5@fast')).toEqual({ base: 'claude-opus-5-5', fast: true });
+    expect(splitFastMode('claude-opus-4-8-20260101@fast')).toEqual({ base: 'claude-opus-4-8-20260101', fast: true });
+    expect(splitFastMode('claude-opus-5-5')).toEqual({ base: 'claude-opus-5-5', fast: false });
+  });
+});
 
 describe('normalizeModelId', () => {
   it('retire un suffixe de date YYYYMMDD', () => {

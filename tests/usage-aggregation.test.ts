@@ -14,6 +14,16 @@ describe('extractAssistantUsage', () => {
     expect(u.ok && u.counts.input).toBe(100);
   });
 
+  it('suffixe `@fast` la clé d’un message servi en fast mode, et seulement lui', () => {
+    const extract = (speed?: string) =>
+      extractAssistantUsage(
+        assistantEvent({ id: 'm1', requestId: 'r1', model: 'claude-opus-5-5', usage: { input_tokens: 1, speed } }),
+      );
+    expect(extract('fast')).toMatchObject({ ok: true, model: 'claude-opus-5-5@fast' });
+    expect(extract('standard')).toMatchObject({ ok: true, model: 'claude-opus-5-5' });
+    expect(extract(undefined)).toMatchObject({ ok: true, model: 'claude-opus-5-5' });
+  });
+
   it('porte la raison du rejet', () => {
     expect(extractAssistantUsage({ type: 'ai-title', aiTitle: 'x' })).toEqual({ ok: false, reason: 'not-assistant' });
     expect(

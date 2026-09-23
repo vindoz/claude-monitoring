@@ -53,6 +53,31 @@ describe('createResolver', () => {
     expect(r.pricing.cacheRead).toBe(0.2);
   });
 
+  it('double tout le tarif en fast mode, cache compris, sans toucher au web', () => {
+    const r = resolver.resolve('claude-opus-5-5@fast');
+    expect(r.match).toBe('exact');
+    expect(r.canonical).toBe('claude-opus-5-5@fast');
+    expect(r.pricing).toMatchObject({ input: 8, output: 40, cacheWrite5m: 10, cacheWrite1h: 16, cacheRead: 0.4 });
+    expect(r.pricing.webSearchPerThousand).toBe(10);
+    // Opus 5 / 4.8 : 10 $ / 50 $ selon la grille publique.
+    expect(resolver.resolve('claude-opus-4-8@fast').pricing).toMatchObject({ input: 10, output: 50 });
+  });
+
+  it('garde la nature de correspondance du modèle de base en fast mode', () => {
+    const family = resolver.resolve('claude-opus-9@fast');
+    expect(family.match).toBe('family');
+    expect(family.pricing.input).toBe(8);
+    expect(resolver.resolve('gpt-5@fast').match).toBe('unknown');
+  });
+
+  it('préfère une surcharge `@fast` explicite, même depuis un id daté', () => {
+    const fastOverride = { input: 7, output: 35, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 };
+    const custom = createResolver({ ...DEFAULT_PRICING, 'claude-opus-5-5@fast': fastOverride });
+    const r = custom.resolve('claude-opus-5-5-20260922@fast');
+    expect(r.match).toBe('exact');
+    expect(r.pricing.input).toBe(7);
+  });
+
   it('tarife Opus 5 et Sonnet 5 par correspondance exacte, pas par repli de famille', () => {
     const opus5 = resolver.resolve('claude-opus-5');
     expect(opus5.match).toBe('exact');

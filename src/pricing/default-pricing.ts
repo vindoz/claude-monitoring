@@ -134,6 +134,25 @@ const FABLE_5_1: ModelPricing = {
   webSearchPerThousand: 10,
 };
 
+/**
+ * Multiplicateur du fast mode (Opus 5.5 : 8 $ / 40 $ ; Opus 5 et 4.8 : 10 $ / 50 $). La
+ * documentation précise que les multiplicateurs de cache s'appliquent PAR-DESSUS le tarif fast :
+ * écritures et lectures de cache sont donc doublées elles aussi.
+ */
+export const FAST_MODE_MULTIPLIER = 2;
+
+/** Tarif fast mode d'un modèle : tokens au multiplicateur, requêtes web inchangées. */
+export function fastModePricing(pricing: ModelPricing): ModelPricing {
+  return {
+    ...pricing,
+    input: pricing.input * FAST_MODE_MULTIPLIER,
+    output: pricing.output * FAST_MODE_MULTIPLIER,
+    cacheWrite5m: pricing.cacheWrite5m * FAST_MODE_MULTIPLIER,
+    cacheWrite1h: pricing.cacheWrite1h * FAST_MODE_MULTIPLIER,
+    cacheRead: pricing.cacheRead * FAST_MODE_MULTIPLIER,
+  };
+}
+
 /** Tarif d'un modèle entièrement gratuit (events `<synthetic>`). */
 export const FREE_PRICING: ModelPricing = {
   input: 0,

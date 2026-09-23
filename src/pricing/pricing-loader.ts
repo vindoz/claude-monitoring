@@ -5,9 +5,16 @@ import {
   DEFAULT_PRICING,
   FAMILY_PRICING,
   FREE_PRICING,
+  fastModePricing,
   type ModelPricing,
 } from './default-pricing.js';
-import { isSyntheticModel, modelFamily, normalizeModelId } from './model-normalizer.js';
+import {
+  FAST_MODE_SUFFIX,
+  isSyntheticModel,
+  modelFamily,
+  normalizeModelId,
+  splitFastMode,
+} from './model-normalizer.js';
 
 /** Schéma de validation d'une entrée de pricing fournie par l'utilisateur. */
 const modelPricingSchema = z.object({
@@ -75,27 +82,46 @@ export function buildResolver(pricingPath?: string): PricingResolver {
  * Crée un résolveur de tarif à partir d'une table fusionnée.
  * Ordre de résolution : synthétique → correspondance exacte (id canonique puis brut)
  * → repli par famille → inconnu (tarif gratuit, signalé).
+ *
+ * Une clé suffixée `@fast` prend d'abord une surcharge explicite (`claude-opus-5-5@fast`) ; à
+ * défaut, elle reçoit le tarif de son modèle de base au multiplicateur du fast mode, avec la
+ * même nature de correspondance — un modèle de base inconnu reste signalé comme tel.
  */
 export function createResolver(table: Record<string, ModelPricing>): PricingResolver {
+  const resolveStandard = (model: string): ResolvedPricing => {
+    if (isSyntheticModel(model)) {
+      return { pricing: FREE_PRICING, match: 'synthetic', canonical: model };
+    }
+    const canonical = normalizeModelId(model);
+
+    const exact = table[canonical] ?? table[model];
+    if (exact) {
+      return { pricing: exact, match: 'exact', canonical };
+    }
+
+    const family = modelFamily(canonical);
+    if (family) {
+      const familyPricing = table[family] ?? FAMILY_PRICING[family];
+      return { pricing: familyPricing, match: 'family', canonical };
+    }
+
+    return { pricing: FREE_PRICING, match: 'unknown', canonical };
+  };
+
   return {
     resolve(model: string): ResolvedPricing {
-      if (isSyntheticModel(model)) {
-        return { pricing: FREE_PRICING, match: 'synthetic', canonical: model };
+      const { base, fast } = splitFastMode(model);
+      if (!fast) {
+        return resolveStandard(model);
       }
-      const canonical = normalizeModelId(model);
-
-      const exact = table[canonical] ?? table[model];
-      if (exact) {
-        return { pricing: exact, match: 'exact', canonical };
+      // Clé normalisée d'abord : un id daté `…-20260101@fast` doit trouver `…@fast`.
+      const canonical = `${normalizeModelId(base)}${FAST_MODE_SUFFIX}`;
+      const override = table[canonical] ?? table[model];
+      if (override) {
+        return { pricing: override, match: 'exact', canonical };
       }
-
-      const family = modelFamily(canonical);
-      if (family) {
-        const familyPricing = table[family] ?? FAMILY_PRICING[family];
-        return { pricing: familyPricing, match: 'family', canonical };
-      }
-
-      return { pricing: FREE_PRICING, match: 'unknown', canonical };
+      const standard = resolveStandard(base);
+      return { pricing: fastModePricing(standard.pricing), match: standard.match, canonical };
     },
   };
 }
