@@ -14,12 +14,14 @@ describe('normalizeModelId', () => {
     expect(normalizeModelId('claude-opus-4-8')).toBe('claude-opus-4-8');
     // Le `-1` de Fable 5.1 n'est pas une date : il ne doit pas être rogné.
     expect(normalizeModelId('claude-fable-5-1')).toBe('claude-fable-5-1');
+    expect(normalizeModelId('claude-opus-5-5')).toBe('claude-opus-5-5');
   });
 });
 
 describe('modelFamily', () => {
   it('reconnaît les familles à partir d’ids complets', () => {
     expect(modelFamily('claude-opus-4-8')).toBe('opus');
+    expect(modelFamily('claude-opus-5-5')).toBe('opus');
     expect(modelFamily('claude-sonnet-4-6')).toBe('sonnet');
     expect(modelFamily('claude-haiku-4-5')).toBe('haiku');
     expect(modelFamily('claude-fable-5')).toBe('fable');

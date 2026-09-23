@@ -3,17 +3,18 @@
  * sauf `webSearchPerThousand` / `webFetchPerThousand` exprimés par millier de requêtes.
  *
  * Source : tarifs publics Anthropic (platform.claude.com/docs/en/about-claude/pricing,
- * relevés le 2026-09-02, tiers standard, prompt caching inclus) :
+ * relevés le 2026-09-23, tiers standard, prompt caching inclus) :
  * - Fable 5.1 : 10 $ / 50 $, mêmes prix de base que Fable 5 mais lecture de cache au quart ;
  * - Fable 5 : 10 $ / 50 $ (soit 2× Opus 5) ;
+ * - Opus 5.5 : 4 $ / 20 $, 20 % sous Opus 5, lecture de cache à 0,20 $ ;
  * - Opus 4.5 → 5 : 5 $ / 25 $ (le tarif 15 $ / 75 $ ne concerne que les anciens Opus 4 / 4.1) ;
  * - Sonnet 5 : 2 $ / 10 $ (tarif dit « introductif », devenu le tarif standard) ;
  * - Sonnet 4.5 / 4.6 : 3 $ / 15 $ ; Haiku 4.5 : 1 $ / 5 $.
  *
  * Les multiplicateurs de cache suivent la règle Anthropic : écriture 5 min = 1,25 × input,
- * écriture 1 h = 2 × input, lecture = 0,1 × input. **Fable 5.1 en est la seule exception** : sa
- * lecture de cache vaut 0,025 × input, abattement que la documentation n'étend à aucun autre
- * modèle (hors Mythos 5.1, réservé à Project Glasswing et absent de cette grille).
+ * écriture 1 h = 2 × input, lecture = 0,1 × input. **Deux exceptions**, toutes deux sur la
+ * lecture : Fable 5.1 à 0,025 × input (comme Mythos 5.1, réservé à Project Glasswing et absent de
+ * cette grille) et Opus 5.5 à 0,05 × input. La documentation ne les étend à aucun autre modèle.
  */
 
 /** Tarification d'un modèle (USD par MTok, sauf requêtes web par millier). */
@@ -34,6 +35,34 @@ export interface ModelPricing {
   webFetchPerThousand?: number;
 }
 
+/**
+ * Opus 5.5 : input, output et écritures de cache 20 % sous Opus 5, et **lecture de cache à
+ * 0,20 $** — soit 0,05 × input au lieu du 0,1 × universel. Cet abattement est nominatif et ne
+ * s'hérite pas (cf. `OPUS_FALLBACK`).
+ */
+const OPUS_5_5: ModelPricing = {
+  input: 4,
+  output: 20,
+  cacheWrite5m: 5,
+  cacheWrite1h: 8,
+  cacheRead: 0.2,
+  webSearchPerThousand: 10,
+};
+
+/**
+ * Repli de la famille `opus` : prix de base d'Opus 5.5, génération courante, mais lecture de
+ * cache au 0,1 × standard (0,40 $) — l'abattement d'Opus 5.5 ne vaut que pour lui.
+ */
+const OPUS_FALLBACK: ModelPricing = {
+  input: 4,
+  output: 20,
+  cacheWrite5m: 5,
+  cacheWrite1h: 8,
+  cacheRead: 0.4,
+  webSearchPerThousand: 10,
+};
+
+/** Opus 4.5 → 5, au tarif de leur génération. */
 const OPUS: ModelPricing = {
   input: 5,
   output: 25,
@@ -116,6 +145,7 @@ export const FREE_PRICING: ModelPricing = {
 
 /** Tarification par identifiant de modèle canonique (suffixe de date retiré). */
 export const DEFAULT_PRICING: Record<string, ModelPricing> = {
+  'claude-opus-5-5': OPUS_5_5,
   'claude-opus-5': OPUS,
   'claude-opus-4-8': OPUS,
   'claude-opus-4-7': OPUS,
@@ -140,13 +170,14 @@ export const DEFAULT_PRICING: Record<string, ModelPricing> = {
  *
  * Deux conséquences assumées :
  * - un identifiant ANCIEN sans entrée exacte est sous-tarifé — un `claude-3-5-sonnet-*` compterait
- *   2 $ / 10 $ au lieu de 3 $ / 15 $, comme un `claude-3-opus` compterait 5 $ / 25 $ au lieu de
+ *   2 $ / 10 $ au lieu de 3 $ / 15 $, comme un `claude-3-opus` compterait 4 $ / 20 $ au lieu de
  *   15 $ / 75 $. Le repli sert les modèles à venir, pas les modèles retirés ;
- * - la famille `fable` reste sur le tarif Fable 5 (lecture de cache à 1 $) : l'abattement de
- *   Fable 5.1 est nominatif, l'étendre à un futur `claude-fable-5-2` serait une supposition.
+ * - les abattements de lecture de cache ne s'héritent pas : la famille `fable` reste à 1 $ (tarif
+ *   Fable 5) et la famille `opus` à 0,40 $ (0,1 × input). Étendre l'abattement de Fable 5.1 ou
+ *   d'Opus 5.5 à un futur `claude-fable-5-2` ou `claude-opus-5-6` serait une supposition.
  */
 export const FAMILY_PRICING: Record<string, ModelPricing> = {
-  opus: OPUS,
+  opus: OPUS_FALLBACK,
   sonnet: SONNET_5,
   haiku: HAIKU,
   fable: FABLE,

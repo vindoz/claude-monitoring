@@ -43,6 +43,16 @@ describe('createResolver', () => {
     expect(r.pricing.cacheRead).toBe(0.25);
   });
 
+  it('applique le tarif Opus 5.5 : 20 % sous Opus 5, lecture de cache à 0,05 × input', () => {
+    const r = resolver.resolve('claude-opus-5-5');
+    expect(r.match).toBe('exact');
+    expect(r.pricing.input).toBe(4);
+    expect(r.pricing.output).toBe(20);
+    expect(r.pricing.cacheWrite5m).toBe(5);
+    expect(r.pricing.cacheWrite1h).toBe(8);
+    expect(r.pricing.cacheRead).toBe(0.2);
+  });
+
   it('tarife Opus 5 et Sonnet 5 par correspondance exacte, pas par repli de famille', () => {
     const opus5 = resolver.resolve('claude-opus-5');
     expect(opus5.match).toBe('exact');
@@ -78,7 +88,11 @@ describe('createResolver', () => {
   it('retombe sur la famille pour un alias nu', () => {
     const r = resolver.resolve('opus');
     expect(r.match).toBe('family');
-    expect(r.pricing.input).toBe(5);
+    // Prix de base d'Opus 5.5, génération courante…
+    expect(r.pricing.input).toBe(4);
+    expect(r.pricing.output).toBe(20);
+    // …mais sans son abattement de lecture, qui est nominatif : 0,1 × input.
+    expect(r.pricing.cacheRead).toBe(0.4);
   });
 
   it('traite les events synthétiques comme gratuits', () => {
